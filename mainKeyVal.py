@@ -8,6 +8,9 @@ import requests
 import json
 import operator
 import math
+from http import HTTPStatus
+# "Any node that does not respond within 5 seconds can broadly or generally be treated as 'failed'"
+MAX_TIMEOUT=5
 
 # update remaining requests (GET, PUT, DELETE) to use and update causal context and to gossip
 # gossip implentation: on demand and periodically
@@ -30,6 +33,7 @@ class mainKeyVal:
 		# when receive gossip from down node, its up again
 
 	def __init__(self, myView, repl_factor):
+		print("test print", file = sys.stderr)
 		self.dictionary = {} # Dictionary containing key-value pairs for this node
 		
 		self.configureNewView(myView.split(','), repl_factor)
@@ -39,6 +43,41 @@ class mainKeyVal:
 		self.changingView = False # Is view currently being changed
 		self.expectedReceiveCount = 0 # Number of keys this node is expected to have after a new view change
 		self.receiveFinalMessageEvent = threading.Event() # Threading event to determine when node needs to wait before finalizing a view change
+
+	# TODO: return actual causal-context
+	def getShardMembership(self):
+		shardCount = {}
+		for shardId in self.shards:
+			if shardId == self.myShard:
+				shardCount[shardId] = len(self.dictionary)
+			# For now, this implementation is assuming everybody's data is synched up ...
+			else:
+				shardData = self.getShardData(shardId)
+				# Entire shard is down or something else went wrong
+				if shardData[1] != HTTPStatus.OK:
+					print("Shard ID = " + str(shardId) + " failed to get shard data" , file = sys.stderr)
+				else:
+					shardCount[shardId] = shardData[0].json["get-shard"]["key-count"]
+		return jsonify({"shard-membership": {"message": "Shard membership retrieved successfully", "causal-context" : {}, "shards" : shardCount}}), 200
+
+	# TODO: return actual causal-context
+	# TODO: trigger gossip if inconsistency in key-counts/casual-contexts?
+	def getShardData(self, shard_id):
+		if shard_id not in self.shards:
+			return jsonify({"shard-membership": {"message": "Shard not found", "causal-context" : {}}}), 404
+		shard = self.shards[shard_id]
+		# Iterate over every node in the shard
+		for node in shard:
+			# Try nodes until 1 succeeds
+			try:
+				response = requests.get('http://'+ node + '/kv-store/key-count', timeout=MAX_TIMEOUT)
+				jsonedResponse = response.json()
+				keyCount = jsonedResponse["key-count"]
+				return jsonify({"get-shard": { "message" : "Shard information retrieved successfully", "shard-id": str(shard_id), "key-count": keyCount, "causal-context": {}, "replicas": shard }}), 200
+			except:
+				print(str(node) + "timedout when asked for key-count by" + os.environ['ADDRESS'] , file = sys.stderr)
+		# All nodes timed out ...
+		return jsonify({"get-shard": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_id)}}), 500
 
 
 	def configureNewView(self, newView, repl_factor):
@@ -50,13 +89,11 @@ class mainKeyVal:
 
 		# determine my shard
 		self.numShards = len(newView)/int(repl_factor)
-		self.shards = []
+		self.shards = {}
 		for i in range(0, int(self.numShards)):
-			shard = []
-			for k in range(0, int(repl_factor)):
-				shard.append("")
-			self.shards.append(shard)
-
+			# empty list with repl_factor entries
+			shard = [""]*int(repl_factor)
+			self.shards[i] = shard
 		# get my index in addresses, devide by repl_factor to select shard
 		self.myShard = int(min(math.floor(addresses.index(os.environ['ADDRESS']) / self.numShards), self.numShards-1))
 
@@ -68,14 +105,15 @@ class mainKeyVal:
 			k += 1
 
 		# prepare new vector clock
-		oldClock = self.vectorClock.copy()
-		self.vectorClock = {}
-		for address in self.view:
-			if address in self.shards[self.myShard]:
-				if address in oldClock:
-					self.vectorClock[address] = oldClock[address]
-				else:
-					self.vectorClock[address] = 0
+		# only set oldClock if we're not initialzing because oldClock doesn't exist in that case
+		# oldClock = self.vectorClock.copy()
+		# self.vectorClock = {}
+		# for address in self.view:
+		# 	if address in self.shards[self.myShard]:
+		# 		if address in oldClock:
+		# 			self.vectorClock[address] = oldClock[address]
+		# 		else:
+		# 			self.vectorClock[address] = 0
 			
 
 
