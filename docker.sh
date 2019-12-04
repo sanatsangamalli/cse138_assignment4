@@ -1,16 +1,37 @@
 # ------------------------------
 # Run Docker containers
+echo "clearing all previous containers..."
 
-path_to_dockerfile="This should be a dockerfile path"
+echo "stop first:"
+docker stop $(docker ps -a -q)
+echo "then remove:"
+docker rm $(docker ps -a -q)
 
+echo "done"
+
+path_to_dockerfile="./"
+
+echo "creating docker subnet..."
 docker network create --subnet=10.10.0.0/16 kv_subnet
+echo "done"
+
+echo "rebuilding Dockerfile"
 docker build -t kv-store:4.0 $path_to_dockerfile
+echo "done"
+
 
 # example node addresses
 addr1="10.10.0.2:13800"
 addr2="10.10.0.3:13800"
 addr3="10.10.0.4:13800"
 addr4="10.10.0.5:13800"
+
+host="192.168.99.100"
+externalAddr1="$host:13802"
+externalAddr2="$host:13803"
+externalAddr3="$host:13804"
+externalAddr4="$host:13805"
+
 
 # convenience variables
 initial_full_view="${addr1},${addr2}"
@@ -29,94 +50,146 @@ read -d '' view_change_data << "VIEW_STR"
 }
 VIEW_STR
 
+echo "running first two nodes with initial full view: ${initial_full_view}" 
+
 docker run --name="node1"        --net=kv_subnet     \
            --ip=10.10.0.2        -p 13802:13800      \
            -e ADDRESS="${addr1}"                     \
            -e VIEW=${initial_full_view}              \
            -e REPL_FACTOR=2                          \
+            -d                                       \
            kv-store:4.0
+
+echo "ran node1"
+echo "creating terminal for node1..."
+mintty -h always -D ./attach.sh node1
+echo "done"
 
 docker run --name="node2"        --net=kv_subnet     \
            --ip=10.10.0.3        -p 13803:13800      \
            -e ADDRESS="${addr2}"                     \
            -e VIEW=${initial_full_view}              \
            -e REPL_FACTOR=2                          \
+            -d                                       \
            kv-store:4.0
+
+echo "ran node2"
+echo "creating terminal for node2..."
+mintty -D ./attach.sh node2
+echo "done"
 
 # ------------------------------
 # add a key
 
-curl --request   PUT                                              \
-     --header    "Content-Type: application/json"                 \
-     --data      '{"value": "sampleValue", "causal-context": {}}' \
-     --write-out "%{http_code}\n"                                 \
-     http://${addr2}/kv-store/keys/sampleKey
+# echo "PUT request on node2, sampleKey=sampleValue"
+# curl --request PUT                                                \
+#      --header    "Content-Type: application/json"                 \
+#      --data      "{'value': 'sampleValue'}" \
+#      --write-out "%{http_code}\n"                                 \
+#      -v -4\
+#      http://${externalAddr1}/kv-store/keys/sampleKey
+# echo "done"
+# #, 'causal-context': {}
+# <<'expected_response'
+# {
+#     "message" : "Added successfully",
+#     "replaced": "false"
+# }
+# status code: 201
+# expected_response
 
 
-<<'expected_response'
-{
-    "message" : "Added successfully",
-    "replaced": "false"
-}
-status code: 201
-expected_response
+# curl --request GET                             \
+#      --header "Content-Type: application/json" \
+#      --write-out "%{http_code}\n"              \
+#      --data      '{"causal-context": {}}'      \
+#      http://${externalAddr2}/kv-store/keys/sampleKey # should be externalAddr1
 
 
-curl --request GET                             \
-     --header "Content-Type: application/json" \
-     --write-out "%{http_code}\n"              \
-     --data      '{"causal-context": {}}'      \
-     http://${addr1}/kv-store/keys/sampleKey
+# <<'expected_response'
+# {
+#     "doesExist": "true",
+#     "message"  : "Retrieved successfully",
+#     "value"    : "sampleValue",
+#     "address"  : "10.10.0.3:13800"
+# }
 
-
-<<'expected_response'
-{
-    "doesExist": "true",
-    "message"  : "Retrieved successfully",
-    "value"    : "sampleValue",
-    "address"  : "10.10.0.3:13800"
-}
-
-status code: 200
-expected_response
+# status code: 200
+# expected_response
 
 
 # ------------------------------
 # Now we start a new node and add it to the existing store
 
 docker run --name="node3" --net=kv_subnet                          \
+            -d                                                     \
            --ip=10.10.0.4  -p 13804:13800                          \
            -e ADDRESS="${addr3}"                                   \
            -e VIEW="${full_view}"                                  \
            -e REPL_FACTOR=2                                        \
            kv-store:4.0
 
+echo "ran node3"
+echo "creating terminal for node3..."
+mintty -D ./attach.sh node3
+echo "done"
+
 docker run --name="node4" --net=kv_subnet                          \
+            -d                                                     \
            --ip=10.10.0.5  -p 13805:13800                          \
            -e ADDRESS="${addr4}"                                   \
            -e VIEW="${full_view}"                                  \
            -e REPL_FACTOR=2                                        \
            kv-store:4.0
 
+echo "ran node4"
+echo "creating terminal for node4..."
+mintty -D ./attach.sh node4
+echo "done"
+
+# curl --request PUT                                                \
+#      --header    "Content-Type: application/json"                 \
+#      --data      '{"value": "sampleValue"}' \
+#      --write-out "%{http_code}\n"                                 \
+#      -v -4\
+#      http://${externalAddr4}/kv-store/keys/sampleKey
+
+
+echo "changing view to include node3 and node4"
 curl --request PUT                                                 \
      --header "Content-Type: application/json"                     \
-     --data $view_change_data                                      \
+     --data "$view_change_data"                                      \
      --write-out "%{http_code}\n"                                  \
-     http://${addr2}/kv-store/view-change
+     http://${externalAddr2}/kv-store/view-change
 
-curl --request GET                                                 \
-     --header "Content-Type: application/json"                     \
-     --write-out "%{http_code}\n"                                  \
-     --data "{\"causal-context\": {}}"                             \
-     http://${addr3}/kv-store/keys/sampleKey
+echo "done"
+# curl --request GET                                                 \
+#      --header "Content-Type: application/json"                     \
+#      --write-out "%{http_code}\n"                                  \
+#      --data "{\"causal-context\": {}}"                             \
+#      http://${externalAddr3}/kv-store/keys/sampleKey
 
-<<'expected_response'
-{
-    "doesExist": "true",
-    "message"  : "Retrieved successfully",
-    "value"    : "sampleValue",
-    "address"  : "10.10.0.2:13800"
-}
+# <<'expected_response'
+# {
+#     "doesExist": "true",
+#     "message"  : "Retrieved successfully",
+#     "value"    : "sampleValue",
+#     "address"  : "10.10.0.2:13800"
+# }
 
-status code: 200
-expected_response
+# status code: 200
+# expected_response
+
+#./Tests/test_all.sh $externalAddr1 $externalAddr2 $externalAddr3 $externalAddr4
+dummyAddress="10.10.0.9:13800"
+
+docker run --name="dummyNode" --net=kv_subnet                          \
+            -d                                                     \
+           --ip=10.10.0.9  -p 13809:13800                          \
+           -e ADDRESS="${dummyAddress}"                            \
+           -e VIEW="${dummyAddress}"                                  \
+           -e REPL_FACTOR=1                                        \
+           kv-store:4.0
+
+#docker exec dummyNode ./Tests/test_all.sh $addr1 $addr2 $addr3 $addr4
+docker exec dummyNode ./Tests/test_write_read.sh $addr1

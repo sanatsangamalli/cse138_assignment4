@@ -1,0 +1,63 @@
+{
+    // FIRST PUT: sampleKey1-value1
+    "node1-put-sampleKey1-value1": {
+        "message"       : "Added successfully",
+        "replaced"      : false,
+        "address"       : "10.10.0.2:13800",
+        "causal-context": {}
+    },
+
+    "node2-put-sampleKey1-value1": {
+        "message"       : "Added successfully",
+        "replaced"      : false,
+        "address"       : "10.10.0.3:13800",
+        "causal-context": {}
+    },
+
+    "node3-put-sampleKey1-value1": {
+        "message"       : "Added successfully",
+        "replaced"      : false,
+        "address"       : "10.10.0.4:13800",
+        "causal-context": {}
+    },
+
+    "node4-put-sampleKey1-value1": {
+        "message"       : "Added successfully",
+        "replaced"      : false,
+        "address"       : "10.10.0.5:13800",
+        "causal-context": {}
+    },
+
+    // FIRST GET: sampleKey1-value1
+    "node1-get-sampleKey1-value1": {
+        "message"       : "Retrieved successfully",
+        "doesExist"     : true,
+        "value"         : "value1",
+        "address"       : "10.10.0.2:13800",
+        "causal-context": {}
+    },
+
+    "node2-get-sampleKey1-value1": {
+        "message"       : "Retrieved successfully",
+        "doesExist"     : true,
+        "value"         : "value1",
+        "address"       : "10.10.0.3:13800",
+        "causal-context": {}
+    },
+
+    "node3-get-sampleKey1-value1": {
+        "message"       : "Retrieved successfully",
+        "doesExist"     : true,
+        "value"         : "value1",
+        "address"       : "10.10.0.4:13800",
+        "causal-context": {}
+    },
+
+    "node4-get-sampleKey1-value1": {
+        "message"       : "Retrieved successfully",
+        "doesExist"     : true,
+        "value"         : "value1",
+        "address"       : "10.10.0.5:13800",
+        "causal-context": {}
+    }
+}
