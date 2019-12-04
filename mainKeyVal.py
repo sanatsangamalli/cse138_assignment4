@@ -9,13 +9,29 @@ import json
 import operator
 import math
 
+# update remaining requests (GET, PUT, DELETE) to use and update causal context and to gossip
+# gossip implentation: on demand and periodically
+# detecting partitions (some timeout less than 5 seconds (see spec), marking nodes as innactive and returning nacks to client)
+	# only nack when you cannot reach any replicas from a given shard
+# misc spec fulfillment (shard metadata, etc...)
+# TESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTEST
+
+# on gossip:
+	# state machine replication
+	# every time there's a change in state, place it in a list events mapping vector clock times to actions
+	# when you gossip, take the combined list of all actions taken since last gossip and order them by causal relation
+		# when two events are concurrent, order them by replica index
+	# clear your list of actions and resume normal operation
 
 class mainKeyVal:
+	# managing up and down nodes
+	# have a list of up nodes
+		# nodes that have timed out recently are removed from list of up nodes
+		# when receive gossip from down node, its up again
 
 	def __init__(self, myView, repl_factor):
 		self.dictionary = {} # Dictionary containing key-value pairs for this node
 		
-		self.vectorClock = {}
 		self.configureNewView(myView.split(','), repl_factor)
 
 		# initial setup to support a view change
@@ -51,10 +67,16 @@ class mainKeyVal:
 			self.shards[index][k%int(repl_factor)] = address
 			k += 1
 
-		for key in self.view:
-			if key not in self.vectorClock:
-				self.vectorClock[key] = 0
-
+		# prepare new vector clock
+		oldClock = self.vectorClock.copy()
+		self.vectorClock = {}
+		for address in self.view:
+			if address in self.shards[self.myShard]:
+				if address in oldClock:
+					self.vectorClock[address] = oldClock[address]
+				else:
+					self.vectorClock[address] = 0
+			
 
 
 	# Hash partitioning
@@ -67,6 +89,8 @@ class mainKeyVal:
 			return os.environ['ADDRESS']
 		# if it's another shard, select an address from that shard and return it
 		else:
+			# find one known up node
+				
 			return self.shards[shardDesination][0]
 		# hashVal = int(hashlib.sha1(key_value.encode('utf-8')).hexdigest(), 16) # First hash is returned as hex value, then converted
 		# return self.view[hashVal % len(self.view)]
@@ -90,10 +114,6 @@ class mainKeyVal:
 
 	# returns the element-wise max of the two vectors A and B
 	def vectorClockMax(self, A, B):
-		print(A, file = sys.stderr)
-		print(B, file = sys.stderr)
-
-		return {}
 
 		# create composite vector
 		composite = {}
@@ -291,7 +311,7 @@ class mainKeyVal:
 	# Prepare for a view change by determining how many keys will be sent to each node
 	def prime(self, host, newView, repl_factor):
 
-		# gossip here
+		# ---gossip here---
 
 		self.changingView = True
 		self.stagedMessages = {}
