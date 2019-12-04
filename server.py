@@ -32,6 +32,17 @@ def keyCount():
 	else:
 		return jsonify({"message": "Method Not Supported"}), 404 
 
+# Function to return the shard-membership. Every shard's id and the number of (unique) keys that each shard holds
+@app.route("/kv-store/shards", methods = ["GET"])
+# Function to return the number of keys stored by a shard and replica ips
+@app.route("/kv-store/shards/<string:shard_id>", methods = ["GET"])
+def shards(shard_id=None):
+	# All shards
+	if shard_id == None:
+		return jsonify({"message": "/kv-store/shards endpoint not implemented yet"}), 501 
+	else:
+		return jsonify({"message": "/kv-store/shards/<string:shard_id> endpoint not implemented yet"}), 501 
+
 # Function called when a view change is requested
 @app.route("/kv-store/view-change", methods = ["PUT", "prime",  "startChange", "receiveValue"])
 def view_change():
