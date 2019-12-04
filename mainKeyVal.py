@@ -7,15 +7,16 @@ import threading
 import requests
 import json
 import operator
+import math
 
 
 class mainKeyVal:
 
-	def __init__(self, myView):
+	def __init__(self, myView, repl_factor):
 		self.dictionary = {} # Dictionary containing key-value pairs for this node
 		
 		self.vectorClock = {}
-		self.configureNewView(myView.split(','))
+		self.configureNewView(myView.split(','), repl_factor)
 
 		# initial setup to support a view change
 		self.leadingViewChange = False # Is the current node the "leader" (initiating the view change)
@@ -24,9 +25,31 @@ class mainKeyVal:
 		self.receiveFinalMessageEvent = threading.Event() # Threading event to determine when node needs to wait before finalizing a view change
 
 
-	def configureNewView(self, newView):
+	def configureNewView(self, newView, repl_factor):
 		self.view = newView
 		self.view.sort() # Sort the view to ensure nodes can reference each other consistently
+
+		# determine shards
+		addresses = self.view
+
+		# determine my shard
+		self.numShards = len(newView)/int(repl_factor)
+		self.shards = []
+		for i in range(0, int(self.numShards)):
+			shard = []
+			for k in range(0, int(repl_factor)):
+				shard.append("")
+			self.shards.append(shard)
+
+		# get my index in addresses, devide by repl_factor to select shard
+		self.myShard = int(min(math.floor(addresses.index(os.environ['ADDRESS']) / self.numShards), self.numShards-1))
+
+		# populate shards the same way
+		k = 0
+		for address in newView:
+			index = int(min(math.floor(addresses.index(address) / self.numShards), self.numShards-1))
+			self.shards[index][k%int(repl_factor)] = address
+			k += 1
 
 		for key in self.view:
 			if key not in self.vectorClock:
@@ -37,48 +60,81 @@ class mainKeyVal:
 	# Hash partitioning
 	# Given a key, function returns the IP address of the node that key will be stored on
 	def determineDestination(self, key_value):
-		hashVal = int(hashlib.sha1(key_value.encode('utf-8')).hexdigest(), 16) # First hash is returned as hex value, then converted
-		return self.view[hashVal % len(self.view)]
+		# determine shard
+		shardDesination = self.determineShardDestination(key_value)
+		# it it's my shard, return my address
+		if shardDesination == self.myShard:
+			return os.environ['ADDRESS']
+		# if it's another shard, select an address from that shard and return it
+		else:
+			return self.shards[shardDesination][0]
+		# hashVal = int(hashlib.sha1(key_value.encode('utf-8')).hexdigest(), 16) # First hash is returned as hex value, then converted
+		# return self.view[hashVal % len(self.view)]
+
+	def determineShardDestination(self, key_value):
+		return int(hashlib.sha1(key_value.encode('utf-8')).hexdigest(), 16) % self.numShards
 
 	# returns whether the vector clock A is less than the vector clock B
 	def vcLessThan(self, A, B):
 		existsElementLessThan = False
 		for address in A:
-			if A[address] < B[address]:
+			if address in B and A[address] < B[address]:
 				existsElementLessThan = True
 		
 		noneGreater = True
 		for address in A:
-			if A[address] > B[address]:
+			if address in B and A[address] > B[address]:
 				noneGreater = False
 
 		return existsElementLessThan and noneGreater
 
+	# returns the element-wise max of the two vectors A and B
+	def vectorClockMax(self, A, B):
+		print(A, file = sys.stderr)
+		print(B, file = sys.stderr)
+
+		return {}
+
+		# create composite vector
+		composite = {}
+		for address in A:
+			composite[address] = A[address]
+		for address in B:
+			composite[address] = B[address]
+
+		# save max for each element
+		for address in composite:
+			# if there's competition
+			if address in A and address in B:
+				composite[address] = max(A[address], B[address])
+			# otherwise we already have the correct value
+		
+		return composite
 
 	# Fulfills client GET requests
 	def get(self, request, key_name):
 		# check causal context
-		#req_data = request.get_json()
-		#causalContext = req_data["causal-context"]
-
-		# update message causal context now, update 
-
-
+		req_data = request.get_json()
+		causalContext = req_data["causal-context"]
+		print(causalContext, file = sys.stderr)
 
 		# if I have a vector clock that is out of date in comparison to the message
-		#if causalContext not empty and vcLessThan(self.vectorClock, causalContext):
-			# resolve this by immediately gossiping with my 
+		if self.vcLessThan(self.vectorClock, causalContext):
+			# gossip to make sure this read is causaly consistant
+			print("gossipTime")
 
 		if key_name in self.dictionary:
 			# increment my vector clock
-			#self.vectorClock[os.environ['ADDRESS']] += 1
-			return jsonify({"doesExist":True, "message":"Retrieved successfully", "value":self.dictionary[key_name]}), 200
+			self.vectorClock[os.environ['ADDRESS']] += 1
+
+			return jsonify({"doesExist":True, "message":"Retrieved successfully", "value":self.dictionary[key_name], "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 200
 		else:
 			if len(self.view) != 0: # Make sure list is non empty
 				key_hash = self.determineDestination(key_name) # Hash the key
 
 				if os.environ['ADDRESS'] == key_hash:
-					return jsonify({"doesExist":False, "error:":"Key does not exist", "message":"Error in GET"}), 404
+					self.vectorClock[os.environ['ADDRESS']] += 1
+					return jsonify({"doesExist":False, "error:":"Key does not exist", "message":"Error in GET", "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 404
 				else:
 					# If key belongs to another node, forward request
 					try:
@@ -100,7 +156,6 @@ class mainKeyVal:
 			return jsonify({"error:":"Key is too long", "message":"Error in PUT"}), 400
 		req_data = request.get_json()
 		
-		print(req_data, file= sys.stderr)
 		if req_data is not None and 'value' in req_data:
 			if len(self.view) != 0: # Make sure list is non empty
 				key_hash = self.determineDestination(key_name)
@@ -165,6 +220,7 @@ class mainKeyVal:
 		# retrieve the new view from the request
 		req_data = request.get_json()
 		newView = req_data["view"] # Variable containing the new view
+		repl_factor = req_data["repl-factor"]
 
 		# retrieve my own address
 		myAddress = os.environ['ADDRESS']
@@ -179,12 +235,12 @@ class mainKeyVal:
 		arguments = []
 
 		for receiver in receivers:
-			arguments.append((receiver, newView))#(",".join(newView))
+			arguments.append((receiver, newView, repl_factor))#(",".join(newView))
 
-		resultingMsgVectors = pool.map(self.sendPrimeMessage, arguments)
+		resultingMsgVectors = pool.starmap(self.sendPrimeMessage, arguments)
 		pool.close()
 
-		self.totalMsgVector = self.prime(myAddress, (",".join(newView)))[0].get_json()
+		self.totalMsgVector = self.prime(myAddress, (",".join(newView)), repl_factor)[0].get_json()
 
 		pool.join()
 
@@ -220,11 +276,11 @@ class mainKeyVal:
 		return jsonify({"message": "View change successful", "shards": shards}), 200 
 
 	# Leading node send prime message to all nodes in view
-	def sendPrimeMessage(self, address_newView):
-		print("sent prime message to " + address_newView[0], file=sys.stderr)
-		print(address_newView[1], file=sys.stderr)
-		response = requests.get('http://'+ address_newView[0] + '/kv-store/view-change/receive?view='+ (",".join(address_newView[1])),timeout=20)
-		print("received prime response from " + address_newView[0], file=sys.stderr)
+	def sendPrimeMessage(self, address, newView, repl_factor):
+		print("sent prime message to " + address, file=sys.stderr)
+		print(newView, file=sys.stderr)
+		response = requests.get('http://'+ address + '/kv-store/view-change/receive?view='+ (",".join(newView) + "&repl-factor=" + str(repl_factor)),timeout=20)
+		print("received prime response from " + address, file=sys.stderr)
 		return response
 
 	# Leading node send start message to all nodes in view
@@ -233,14 +289,16 @@ class mainKeyVal:
 
 	# followers
 	# Prepare for a view change by determining how many keys will be sent to each node
-	def prime(self, host, newView):
+	def prime(self, host, newView, repl_factor):
+
+		# gossip here
 
 		self.changingView = True
 		self.stagedMessages = {}
 
-		print("NEW VIEW: " + newView, file=sys.stderr)
+		print("NEW VIEW REPLFACTOR: " + str(repl_factor), file=sys.stderr)
 
-		self.configureNewView(newView.split(','))
+		self.configureNewView(newView.split(','), repl_factor)
 		self.expectedReceiveCount = 0 # Number of keys a node is expected to receive
 
 		# Initialize message vector
@@ -250,10 +308,11 @@ class mainKeyVal:
 
 		# Determine how many keys need to be sent to each node
 		for key in self.dictionary:
-			destination = self.determineDestination(key)
-			if destination != host:
-				messageVector[destination] += 1
-				self.stagedMessages[key] = destination
+			destinationShard = self.determineShardDestination(key)
+			if destinationShard != self.myShard:
+				myIndexInShard = self.shards[self.myShard].index(os.environ['ADDRESS'])
+				messageVector[self.shards[destinationShard][myIndexInShard]] += 1
+				self.stagedMessages[key] = self.shards[destinationShard][myIndexInShard]
 
 		print("priming", file = sys.stderr)
 

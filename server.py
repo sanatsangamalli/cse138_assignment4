@@ -52,9 +52,9 @@ def receive():
 		address = request.remote_addr
 		return server.receiveValue(new_key, new_value, address) # Node receives a key from another node
 	elif request.method == "GET":
-		print("receiving request to prime", file=sys.stderr)
 		arguments = request.args.to_dict() # Return vector of message counts
-		return server.prime(request.host, arguments["view"])
+		print("receiving request to prime: factor = " + str(arguments["repl-factor"]), file=sys.stderr)
+		return server.prime(request.host, arguments["view"], arguments["repl-factor"])
 	elif request.method == "POST":
 		arguments = request.args.to_dict()
 		count = int(arguments["count"])
@@ -68,5 +68,5 @@ def clear():
 
 if __name__ == "__main__":
 	if 'VIEW' in os.environ:
-		server = mainKeyVal(os.environ['VIEW'])
+		server = mainKeyVal(os.environ['VIEW'], os.environ['REPL_FACTOR'])
 	app.run(debug=True, host = '0.0.0.0', port = 13800, threaded = True)

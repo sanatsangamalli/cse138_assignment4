@@ -62,7 +62,8 @@ docker run --name="node1"        --net=kv_subnet     \
 
 echo "ran node1"
 echo "creating terminal for node1..."
-mintty -h always -D ./attach.sh node1
+#mintty -h always -D ./attach.sh node1
+mintty -D ./attach.sh node1
 echo "done"
 
 docker run --name="node2"        --net=kv_subnet     \
