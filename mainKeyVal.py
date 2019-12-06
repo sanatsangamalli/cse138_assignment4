@@ -38,6 +38,8 @@ class mainKeyVal:
 		
 		self.configureNewView(myView.split(','), repl_factor)
 
+		self.eventHistory = [] #storing a list of dictionaries representing put and delete events
+
 		# initial setup to support a view change
 		self.leadingViewChange = False # Is the current node the "leader" (initiating the view change)
 		self.changingView = False # Is view currently being changed
@@ -112,14 +114,17 @@ class mainKeyVal:
 			index = int(min(math.floor(addresses.index(address) / self.numShards), self.numShards-1))
 			self.shards[index][k%int(repl_factor)] = address
 			k += 1
-		print("self.shards=" + str(self.shards), file = sys.stderr)
-		# prepare new vector clock
 
-		# set oldClock if we're not initializing
+		self.replicaStatus = {} # values are "available" and "unavailable" 
+		for address in self.shards[self.myShard]:
+			if address != os.environ['ADDRESS']:
+				self.replicaStatus[address] = "available"
+
+		# prepare new vector clock
+		# only set oldClock if we're not initialzing because oldClock doesn't exist in that case
 		oldClock = {}
 		if hasattr(self, 'vectorClock'):
 			oldClock = self.vectorClock.copy()
-		
 		self.vectorClock = {}
 		for address in self.view:
 			if address in self.shards[self.myShard]:
@@ -127,7 +132,129 @@ class mainKeyVal:
 					self.vectorClock[address] = oldClock[address]
 				else:
 					self.vectorClock[address] = 0
-		print("Vector clock initialized to " + str(self.vectorClock), file = sys.stderr)
+			
+	def allReplicasAvailable():
+		for address in self.replicaStatus:
+			if self.replicaStatus[address] == "unavailable":
+				return False
+
+		return True
+
+	def gossip(self):
+
+		eventLists = []
+		eventLists.append(self.eventHistory)
+		vectorClocks = {}
+
+		# for each other replica
+		for address in self.shards[self.myShard]:
+
+			# send a message
+			if address != os.environ['ADDRESS']:
+				if self.replicaStatus[address] == "available":
+					try:
+						response = self.sendGossipMessage(self.eventHistory)
+					except TimeoutError:
+						# handle timeout case
+						self.markUnavailable(address)
+					else:
+						# receive list of events
+						eventLists.append(response.json()["events"])
+						# strip this list of values before my causal context
+						vectorClocks[address] = response.json()["vector-clock"]
+
+		# merge all lists into single ordered list of events to apply
+		finalList = self.mergeEventLists(eventLists)
+
+		# then apply them
+		self.applyEvents(finalList)
+
+		# update vector clock for each available replica
+		for address in vectorClocks:
+			self.vectorClock = self.vectorClockMax(self.vectorClock, vectorClocks[address])
+
+		# if all replicas were available, we can safely empty our event list, but should save it otherwise
+		if allReplicasAvailable():
+			self.eventHistory = []
+
+
+
+	def applyEvents(self, eventList):
+		for event in eventList:
+			if event["type"] == "PUT":
+				self.dictionary[event["key"]] = event["value"]
+			elif event["type"] == "DELETE":
+				if event["key"] in self.dictionary:
+					del self.dictionary[event["key"]]
+
+
+	def mergeEventLists(self, eventLists):
+		finalList = []
+
+		while someListHasValue(eventLists):
+			# get starting value
+			for eventList in eventLists:
+				if len(eventList) > 0:
+					bestEventList = eventList
+					bestEvent = eventList[0]
+					break
+			
+			# select a value
+			for eventList in eventLists:
+				for event in eventList:
+					if eventABeforeEventB(event, eventLists.index(eventList), bestEvent, eventLists.index(bestEventList)):
+						bestEventList = eventList
+						bestEvent = event
+			
+			# add value to list
+			eventLists[bestEventList].remove(bestEvent)
+			finalList.append(bestEvent)
+
+		return finalList
+
+
+	def someListHasValue(self, eventLists):
+		for eventList in eventLists:
+			if len(eventList) > 0:
+				return True
+		return False
+
+	# returns whether event A should be applied before event B
+	def eventABeforeEventB(self, A, aReplica, B, bReplica):
+		aLessThanB = vcLessThan(A, B)
+		bLessThanA = vcLessThan(B, A)
+		
+		if not aLessThanB and not bLessThanA:
+			# they're concurrent, resolve using replica id
+			return aReplica < bReplica
+		else:
+			return aLessThanB
+
+	def markUnavailable(self, address):
+		self.replicaStatus[address] = "unavailable"
+		#schedule polling
+
+
+	def produceTimeoutError(self):
+		return "not implemented"
+
+	def sendGossipMessage(self, address, history):
+		return requests.get('http://'+ address + '/kv-store/gossip', data={"events" : history, "causal-context" : self.vectorClock}, timeout=MAX_TIMEOUT)
+
+	def respondToGossip(self, request):
+		print("Here's a potential problem spot", file = sys.stderr)
+		data = request.get_json()
+
+		# combine message histories and apply
+		eventLists = []
+		eventLists.append(self.eventHistory)
+		eventLists.append(data["events"])
+		self.applyEvents(self.mergeEventLists())
+
+		# update vector clock, but JUST THE ENTRY FOR THE SENDER
+		self.vectorClock[request.remote_addr] = data["causal-context"][request.remote_addr]
+
+		# do NOT delete my message history
 
 
 	# Hash partitioning
