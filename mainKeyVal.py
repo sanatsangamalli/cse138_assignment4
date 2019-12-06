@@ -10,7 +10,7 @@ import operator
 import math
 from http import HTTPStatus
 # "Any node that does not respond within 5 seconds can broadly or generally be treated as 'failed'"
-MAX_TIMEOUT=1
+MAX_TIMEOUT=5
 
 # update remaining requests (GET, PUT, DELETE) to use and update causal context and to gossip
 # gossip implentation: on demand and periodically
@@ -234,10 +234,6 @@ class mainKeyVal:
 		self.replicaStatus[address] = "unavailable"
 		#schedule polling
 
-
-	def produceTimeoutError(self):
-		return "not implemented"
-
 	def sendGossipMessage(self, address, history):
 		return requests.get('http://'+ address + '/kv-store/gossip', data={"events" : history, "causal-context" : self.vectorClock}, timeout=MAX_TIMEOUT)
 
@@ -318,6 +314,7 @@ class mainKeyVal:
 			# gossip to make sure this read is causaly consistant
 			print("gossipTime")
 
+
 		shard_location = self.determineShardDestination(key_name)
 		print("shard_location: " + str(shard_location), file = sys.stderr)
 		shard = self.shards[shard_location]
@@ -357,35 +354,76 @@ class mainKeyVal:
 			return jsonify({"error:":"Key is too long", "message":"Error in PUT"}), 400
 		req_data = request.get_json()
 		
-		if req_data is not None and 'value' in req_data:
-			if len(self.view) != 0: # Make sure list is non empty
-				key_hash = self.determineDestination(key_name)
-				if os.environ['ADDRESS'] == key_hash:
-					data = req_data['value']
-					replaced = key_name in self.dictionary
-					self.dictionary[key_name] = data
-					if replaced:
-						message = "Updated successfully"
-						code = 200
-					else:
-						message = "Added successfully"
-						code = 201
-					self.vectorClock[os.environ['ADDRESS']] += 1
-					return jsonify({"message":message, "replaced":replaced}), code
-				else:
-					try:
-						response = requests.put('http://'+ key_hash + '/kv-store/keys/' + key_name, data=json.dumps(req_data), headers=dict(request.headers), timeout=MAX_TIMEOUT)
-					except requests.exceptions.Timeout:
-						return self.produceTimeoutError('PUT')
-					except:
-						return jsonify({'error': 'Node in view (' + key_hash + ') does not exist', 'message': 'Error in PUT'}), 503
-					json_response = response.json()
-					json_response.update({'address': key_hash})
-					return json_response, response.status_code
+		shard_location = self.determineShardDestination(key_name)
+		print("shard_location: " + str(shard_location), file = sys.stderr)
+		print("self.shards" + str(self.shards), file = sys.stderr)
+		shard = self.shards[shard_location]
+		print("shard:" + str(shard), file = sys.stderr)
+		# I'm a replica in target shard, just put/update locally
+		if os.environ['ADDRESS'] in shard:
+			data = req_data['value']
+			replaced = key_name in self.dictionary
+			self.dictionary[key_name] = data
+			if replaced:
+				message = "Updated successfully"
+				code = 200
 			else:
-				return jsonify({"error:":"List is empty", "message":"Error in PUT"}), 400
+				message = "Added successfully"
+				code = 201
+			# increment my vector clock
+			self.vectorClock[os.environ['ADDRESS']] += 1
+			return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": {}}), 200
+			# return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 200
+		# Forward request to nodes in target shard
 		else:
-			return jsonify({"error:":"Value is missing", "message":"Error in PUT"}), 400
+			# Iterate over every node in the shard
+			# TODO: Update vector clock everytime a message is sent???
+			for node in shard:
+				print("trying node:" + str(node), file = sys.stderr)
+				# Try nodes until 1 succeeds
+				try:
+					response = requests.put('http://'+ node + '/kv-store/keys/' + key_name, data=json.dumps(req_data), headers=dict(request.headers), timeout=MAX_TIMEOUT)
+					json_response = response.json()
+					json_response.update({'address': node})
+					return json_response, response.status_code
+				except requests.exceptions.Timeout:
+					print(str(node) + "timedout when asked for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+				except Exception as e:
+					print(e)
+					print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+			# NACK: All nodes timed out ...
+			return jsonify({"put": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
+			
+
+		# if req_data is not None and 'value' in req_data:
+		# 	if len(self.view) != 0: # Make sure list is non empty
+		# 		key_hash = self.determineDestination(key_name)
+		# 		if os.environ['ADDRESS'] == key_hash:
+		# 			data = req_data['value']
+		# 			replaced = key_name in self.dictionary
+		# 			self.dictionary[key_name] = data
+		# 			if replaced:
+		# 				message = "Updated successfully"
+		# 				code = 200
+		# 			else:
+		# 				message = "Added successfully"
+		# 				code = 201
+		# 			self.vectorClock[os.environ['ADDRESS']] += 1
+		# 			return jsonify({"message":message, "replaced":replaced}), code
+		# 		else:
+		# 			try:
+		# 				response = requests.put('http://'+ key_hash + '/kv-store/keys/' + key_name, data=json.dumps(req_data), headers=dict(request.headers), timeout=MAX_TIMEOUT)
+		# 			except requests.exceptions.Timeout:
+		# 				return self.produceTimeoutError('PUT')
+		# 			except:
+		# 				return jsonify({'error': 'Node in view (' + key_hash + ') does not exist', 'message': 'Error in PUT'}), 503
+		# 			json_response = response.json()
+		# 			json_response.update({'address': key_hash})
+		# 			return json_response, response.status_code
+		# 	else:
+		# 		return jsonify({"error:":"List is empty", "message":"Error in PUT"}), 400
+		# else:
+		# 	return jsonify({"error:":"Value is missing", "message":"Error in PUT"}), 400
 	
 	# Fulfills client DELETE requests
 	def delete(self, request, key_name):
