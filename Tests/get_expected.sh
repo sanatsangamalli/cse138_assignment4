@@ -6,9 +6,11 @@
 
 echo "Checking key: $2 for expected value: $4 on node: $1"
 
-resultValue=$(./Tests/get.sh $1 $2 "{}" | jq '.value')
+#resultValue=$(./Tests/get.sh $1 $2 "{}" | jq '.value')
 
-if [ $resultValue = "\"$4\"" ]; then
+echo ./Tests/get.sh $1 $2 "{}"
+
+if [[ $resultValue = "\"$4\"" ]]; then
     echo "Success: expected \"$4\", got $resultValue"
 else
     echo "Failure: expected \"$4\", got $resultValue"
