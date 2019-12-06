@@ -18,6 +18,7 @@ def keyValStore(key_name):
 	if request.method == "PUT":
 		return server.put(request, key_name)
 	elif request.method == "GET":
+		print("getting " + key_name, file = sys.stderr)
 		return server.get(request, key_name)
 	elif request.method == "DELETE":
 		return server.delete(request, key_name)
@@ -75,7 +76,16 @@ def receive():
 	else:
 		return jsonify({"message": "Method Not Supported"}), 404
 
-@app.route("/kv-store/clear")
+@app.route("/kv-store/gossip", methods = ["GET"])
+def gossip():
+	print(request, file = sys.stderr)
+	return server.respondToGossip(request)
+
+@app.route("/kv-store/poll")
+def poll():
+	return server.receivePoll(request)
+
+@app.route("/kv-store/clear", methods = ["DELETE"])
 def clear():
 	return server.clear()
 

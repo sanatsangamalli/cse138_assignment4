@@ -5,10 +5,11 @@
 # $4 = expected value
 
 echo "Checking key: $2 for expected value: $4 on node: $1"
+echo "{\"causal-context\": $3}"
 
-#resultValue=$(./Tests/get.sh $1 $2 "{}" | jq '.value')
+#./Tests/get.sh $1 $2 $3
+resultValue=$(./Tests/get.sh $1 $2 $3 | jq '.value')
 
-echo ./Tests/get.sh $1 $2 "{}"
 
 if [[ $resultValue = "\"$4\"" ]]; then
     echo "Success: expected \"$4\", got $resultValue"

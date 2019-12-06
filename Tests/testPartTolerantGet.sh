@@ -1,8 +1,13 @@
-./Tests/put.sh localhost:13802 sampleKey sampleValue {}
-./Tests/put.sh localhost:13803 sampleKey sampleValue {}
-./Tests/get.sh localhost:13804 sampleKey
-./Tests/get.sh localhost:13805 sampleKey
+#!/bin/bash
+
+
+./Tests/put.sh $1 sampleKey sampleValue {}
+./Tests/put.sh $2 sampleKey sampleValue {}
+./Tests/get.sh $3 sampleKey  "{}"
+./Tests/get.sh $4 sampleKey  "{}"
  docker network disconnect kv_subnet node1
-./Tests/get.sh localhost:13804 sampleKey
+./Tests/get.sh $3 sampleKey "{}"
 docker network disconnect kv_subnet node2
- ./Tests/get.sh localhost:13804 sampleKey
+ ./Tests/get.sh $3 sampleKey "{}"
+docker network connect kv_subnet node1
+docker network connect kv_subnet node2

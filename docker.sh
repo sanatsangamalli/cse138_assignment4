@@ -63,9 +63,9 @@ docker run --name="node1"        --net=kv_subnet     \
 echo "ran node1"
 echo "creating terminal for node1..."
 #mintty -h always -D ./attach.sh node1
-# mintty -D ./attach.sh node1
+mintty -D ./attach.sh node1
 # OSX only: launch new terminal window, at that path, and run ./attach.sh 
-osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node1" '
+#osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node1" '
 
 echo "done"
 
@@ -79,8 +79,8 @@ docker run --name="node2"        --net=kv_subnet     \
 
 echo "ran node2"
 echo "creating terminal for node2..."
-# mintty -D ./attach.sh node2
-osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node2" '
+ mintty -D ./attach.sh node2
+#osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node2" '
 
 
 echo "done"
@@ -129,32 +129,32 @@ echo "done"
 # Now we start a new node and add it to the existing store
 
 docker run --name="node3" --net=kv_subnet                          \
-            -d                                                     \
            --ip=10.10.0.4  -p 13804:13800                          \
            -e ADDRESS="${addr3}"                                   \
            -e VIEW="${full_view}"                                  \
            -e REPL_FACTOR=2                                        \
+            -d                                                     \
            kv-store:4.0
 
 echo "ran node3"
 echo "creating terminal for node3..."
-# mintty -D ./attach.sh node3
-osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node3" '
+mintty -D ./attach.sh node3
+#osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node3" '
 
 echo "done"
 
 docker run --name="node4" --net=kv_subnet                          \
-            -d                                                     \
            --ip=10.10.0.5  -p 13805:13800                          \
            -e ADDRESS="${addr4}"                                   \
            -e VIEW="${full_view}"                                  \
            -e REPL_FACTOR=2                                        \
+            -d                                                     \
            kv-store:4.0
 
 echo "ran node4"
 echo "creating terminal for node4..."
-# mintty -D ./attach.sh node4
-osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node4" '
+mintty -D ./attach.sh node4
+#osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node4" '
 
 echo "done"
 echo "all 4 nodes running"
@@ -166,12 +166,12 @@ echo "all 4 nodes running"
 #      http://${externalAddr4}/kv-store/keys/sampleKey
 
 
-# echo "changing view to include node3 and node4"
-# curl --request PUT                                                 \
-#      --header "Content-Type: application/json"                     \
-#      --data "$view_change_data"                                      \
-#      --write-out "%{http_code}\n"                                  \
-#      http://${externalAddr2}/kv-store/view-change
+echo "changing view to include node3 and node4"
+curl --request PUT                                                 \
+     --header "Content-Type: application/json"                     \
+     --data "$view_change_data"                                      \
+     --write-out "%{http_code}\n"                                  \
+     http://${externalAddr2}/kv-store/view-change
 
 # echo "done"
 # curl --request GET                                                 \
@@ -202,5 +202,11 @@ echo "all 4 nodes running"
 #            -e REPL_FACTOR=1                                        \
 #            kv-store:4.0
 
-#docker exec dummyNode ./Tests/test_all.sh $addr1 $addr2 $addr3 $addr4
-# docker exec dummyNode ./Tests/test_write_read.sh $addr1
+# mintty -h always -D ./attach.sh dummyNode
+
+
+#docker exec node1 ./Tests/test_all.sh $addr1 $addr2 $addr3 $addr4
+#./Tests/test_all.sh $externalAddr1 $externalAddr2 $externalAddr3 $externalAddr4
+#./Tests/test_shard_endpoint.sh $externalAddr1 $externalAddr2 $externalAddr3 $externalAddr4
+./Tests/test_write_read_replica.sh $externalAddr1 $externalAddr2
+#docker exec dummyNode ./Tests/test_write_read.sh $addr4

@@ -5,7 +5,7 @@
 
 curl -s --request DELETE                                                \
      --header    "Content-Type: application/json"                 \
-     --data "{\"causal-context\": \"$3\"}"                       \
+     --data "{\"causal-context\": $3}"                       \
      http://$1/kv-store/keys/$2
      
 # --write-out "%{http_code}\n"                                 \

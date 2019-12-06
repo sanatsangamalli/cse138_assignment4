@@ -27,5 +27,3 @@ echo "Confirm shard membership views updated data"
 # TEST4: Remove nodes until only 1 node is up per shard 
 
 # TEST5: Kill 1 shard and test shard membership
-
-localhost:13802

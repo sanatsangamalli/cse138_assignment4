@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 # $1 = node address
 
 # write a value and make sure it sticks
