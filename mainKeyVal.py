@@ -641,6 +641,9 @@ class mainKeyVal:
 		# each element should be of format i.e. { "address": "10.10.0.2:13800", "key-count": 5 },
 
 		hostShard = self.startChange(self.totalMsgVector[myAddress]).get_json() # Leading node send out its keys first
+		print("hostShard", file=sys.stderr)
+		print(hostShard, file=sys.stderr)
+		hostShard["address"] = os.environ["ADDRESS"]
 		shardPool = ThreadPool(len(receivers))
 		shards = shardPool.map(self.sendStartMessage, receivers) # Signal other nodes to send keys
 		shardPool.close()
