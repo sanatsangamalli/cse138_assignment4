@@ -776,7 +776,7 @@ class mainKeyVal:
 
 		self.vectorClock[os.environ['ADDRESS']] += 1
 
-		return jsonify({"message": "Key count retrieved successfully", "key-count": len(self.dictionary)}, "causal-context": self.vectorClockMax(causalContext, self.vectorClock)), 200 
+		return jsonify({"message": "Key count retrieved successfully", "key-count": len(self.dictionary), "causal-context": self.vectorClockMax(causalContext, self.vectorClock)}), 200 
 
 	def produceAvailabilityError(self, httpMethod, clientCausalContext):
 		return jsonify({'error': 'Unable to satisfy request', 'message': 'Error in ' + httpMethod, 'causal-context' : clientCausalContext}), 503

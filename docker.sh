@@ -63,7 +63,7 @@ docker run --name="node1"        --net=kv_subnet     \
 echo "ran node1"
 echo "creating terminal for node1..."
 #mintty -h always -D ./attach.sh node1
-mintty -D ./attach.sh node1
+mintty -h always -D ./attach.sh node1
 # OSX only: launch new terminal window, at that path, and run ./attach.sh 
 #osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node1" '
 
