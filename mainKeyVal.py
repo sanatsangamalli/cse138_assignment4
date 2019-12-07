@@ -155,6 +155,9 @@ class mainKeyVal:
 			self.shards[index][k%int(repl_factor)] = address
 			k += 1
 
+		print("shards", file=sys.stderr)
+		print(self.shards, file=sys.stderr)
+
 		self.replicaStatus = {} # values are "available" and "unavailable" 
 		for address in self.shards[self.myShard]:
 			if address != os.environ['ADDRESS']:
@@ -605,6 +608,8 @@ class mainKeyVal:
 
 		# retrieve my own address
 		myAddress = os.environ['ADDRESS']
+		print("myAddress", file=sys.stderr)
+		print(myAddress, file=sys.stderr)
 
 		# create a list of everyone in the view except me
 		receivers = newView.copy()
@@ -672,7 +677,7 @@ class mainKeyVal:
 	# Prepare for a view change by determining how many keys will be sent to each node
 	def prime(self, host, newView, repl_factor):
 
-		#gossip()
+		self.gossip()
 
 		self.changingView = True
 		self.stagedMessages = {}
