@@ -2,8 +2,6 @@
 # $1 = node address
 # $2 = key
 # $3 = causal-context
-echo "sup"
-echo "{\"causal-context\": $3}"
 curl --max-time 5.5                                         \
     --request GET                                                \
      --header    "Content-Type: application/json"                 \

@@ -3,7 +3,6 @@
 # $2 = key
 # $3 = value
 # $4 = causal-context
-
 curl --max-time 5.5 --request PUT                                                \
      --header    "Content-Type:application/json"                 \
      --data      "{\"value\": \"$3\", \"causal-context\": $4}"                       \

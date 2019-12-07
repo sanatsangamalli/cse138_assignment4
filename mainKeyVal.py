@@ -10,6 +10,7 @@ import operator
 import math
 import schedule
 import random
+import time
 from http import HTTPStatus
 # "Any node that does not respond within 5 seconds can broadly or generally be treated as 'failed'"
 MAX_TIMEOUT=5
@@ -35,11 +36,9 @@ class mainKeyVal:
 		# when receive gossip from down node, its up again
 
 	def __init__(self, myView, repl_factor):
-		print("test print", file = sys.stderr)
 		self.dictionary = {} # Dictionary containing key-value pairs for this node
 		
 		self.configureNewView(myView.split(','), repl_factor)
-
 		self.eventHistory = [] #storing a list of dictionaries representing put and delete events
 
 		# initial setup to support a view change
@@ -47,13 +46,17 @@ class mainKeyVal:
 		self.changingView = False # Is view currently being changed
 		self.expectedReceiveCount = 0 # Number of keys this node is expected to have after a new view change
 		self.receiveFinalMessageEvent = threading.Event() # Threading event to determine when node needs to wait before finalizing a view change
+		
 		self.gossipWait = random.randrange(1, len(self.view))
 		self.gossipThread = threading.Thread(target = self.runScheduledPoll)
 		self.pollThread = threading.Thread(target = self.runScheduledGossip)
 
+		self.gossipThread.start()
+		self.pollThread.start()
+
 
 	def runScheduledPoll(self):
-		schedule.every(3).seconds.do(self.pollDead)
+		schedule.every(3).seconds.do(self.sendPoll)
 		while True:
 			schedule.run_pending()
 			time.sleep(1)
@@ -72,6 +75,8 @@ class mainKeyVal:
 				try:
 					requests.post('http://'+ address + '/kv-store/poll', timeout = MAX_TIMEOUT)
 				except TimeoutError:
+					print("Failed to reach " + str(address))
+				except:
 					print("Failed to reach " + str(address))
 				else:
 					self.replicaStatus[address] = "available"
@@ -176,7 +181,7 @@ class mainKeyVal:
 		return True
 
 	def gossip(self):
-
+		#print("leading gossip", file=sys.stderr)
 		eventLists = []
 		eventLists.append(self.eventHistory)
 		vectorClocks = {}
@@ -186,6 +191,7 @@ class mainKeyVal:
 
 			# send a message
 			if address != os.environ['ADDRESS']:
+				#print("gossiping with: " + address, file=sys.stderr)
 				if self.replicaStatus[address] == "available":
 					try:
 						response = self.sendGossipMessage(address, self.eventHistory)
@@ -193,10 +199,10 @@ class mainKeyVal:
 						# handle timeout case
 						self.markUnavailable(address)
 					else:
-						print("hskflkdj", file = sys.stderr)
-						print(response, file = sys.stderr)
-						print(response.json(), file = sys.stderr)
-						print(type(response.text), file = sys.stderr)
+						# print("gossiped successfully:", file = sys.stderr)
+						# print(response, file = sys.stderr)
+						# print(response.json(), file = sys.stderr)
+						# print(type(response.text), file = sys.stderr)
 						# receive list of events
 						eventLists.append(response.json()["events"])
 						# strip this list of values before my causal context
@@ -214,45 +220,43 @@ class mainKeyVal:
 
 		# if all replicas were available, we can safely empty our event list, but should save it otherwise
 		if self.allReplicasAvailable():
+			print("gossiped successfully with all peers, clearing event history", file=sys.stderr)
 			self.eventHistory = []
-
-		self.vectorClock[os.environ['ADDRESS']] += 1
 
 
 
 	def applyEvents(self, eventList):
 		for event in eventList:
-			mineLess = self.vcLessThan(self.vectorClock, event["causal-context"])
-			theirsLess = self.vcLessThan(event["causal-context"], self.vectorClock)
-			if mineLess or (not mineLess and not theirsLess):
-				if event["type"] == "PUT":
-					self.dictionary[event["key"]] = event["value"]
-				elif event["type"] == "DELETE":
-					if event["key"] in self.dictionary:
-						del self.dictionary[event["key"]]
+			if event["type"] == "PUT":
+				self.dictionary[event["key"]] = event["value"]
+			elif event["type"] == "DELETE":
+				if event["key"] in self.dictionary:
+					del self.dictionary[event["key"]]
 			
 
 
 	def mergeEventLists(self, eventLists):
 		finalList = []
-
-		while self.someListHasValue(eventLists):
+		tempLists = []
+		for eventList in eventLists:
+			tempLists.append(eventList.copy())
+		while self.someListHasValue(tempLists):
 			# get starting value
-			for eventList in eventLists:
+			for eventList in tempLists:
 				if len(eventList) > 0:
 					bestEventList = eventList
 					bestEvent = eventList[0]
 					break
 			
 			# select a value
-			for eventList in eventLists:
+			for eventList in tempLists:
 				for event in eventList:
-					if self.eventABeforeEventB(event["causal-context"], eventLists.index(eventList), bestEvent["causal-context"], eventLists.index(bestEventList)):
+					if self.eventABeforeEventB(event["causal-context"], tempLists.index(eventList), bestEvent["causal-context"], tempLists.index(bestEventList)):
 						bestEventList = eventList
 						bestEvent = event
 			
 			# add value to list
-			eventLists[eventLists.index(bestEventList)].remove(bestEvent)
+			tempLists[tempLists.index(bestEventList)].remove(bestEvent)
 			finalList.append(bestEvent)
 
 		return finalList
@@ -283,11 +287,10 @@ class mainKeyVal:
 		return requests.get('http://'+ address + '/kv-store/gossip', json={"events" : history, "causal-context" : self.vectorClock}, timeout=MAX_TIMEOUT)
 
 	def respondToGossip(self, request):
-		print("Here's a potential problem spot", file = sys.stderr)
+		print("Servicing gossip request:", file = sys.stderr)
 		data = request.get_json()
-		print(request, file = sys.stderr)
-		print(data, file = sys.stderr)
-
+		#print("Request data:", file = sys.stderr)
+		#print(data, file = sys.stderr)
 
 		# combine message histories and apply
 		eventLists = []
@@ -298,9 +301,6 @@ class mainKeyVal:
 		# update vector clock, but JUST THE ENTRY FOR THE SENDER
 		address = request.remote_addr + ":13800"
 		self.vectorClock[address] = data["causal-context"][address]
-
-		self.vectorClock[os.environ['ADDRESS']] += 1
-		print(self.eventHistory, file = sys.stderr)
 
 		return jsonify({"events" : self.eventHistory, "causal-context" : self.vectorClock}), 200
 
@@ -354,6 +354,21 @@ class mainKeyVal:
 			# otherwise we already have the correct value
 		return composite
 
+
+	def outOfDateWRT(self, causalContext):
+		if not bool(causalContext):
+			return False
+
+		print("comparing contexts, mine:", file=sys.stderr)
+		print(self.vectorClock, file=sys.stderr)
+		print("comparing contexts, thiers:", file=sys.stderr)
+		print(causalContext, file=sys.stderr)
+
+		if self.vectorClock == causalContext:
+			return False
+
+		return not self.vcLessThan(causalContext, self.vectorClock)
+
 	# Fulfills client GET requests
 	def get(self, request, key_name):
 		# check causal context
@@ -363,13 +378,15 @@ class mainKeyVal:
 		print("server: getting " + key_name, file = sys.stderr)
 
 		# if I have a vector clock that is out of date in comparison to the message
-		if self.vcLessThan(self.vectorClock, causalContext):
+		if self.outOfDateWRT(causalContext):
 			# gossip to make sure this read is causaly consistant
 			self.gossip()
 
+		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+		if self.outOfDateWRT(causalContext):
+			return self.produceAvailabilityError("GET")
 
 		shard_location = self.determineShardDestination(key_name)
-		print("shard_location: " + str(shard_location), file = sys.stderr)
 		shard = self.shards[shard_location]
 		
 		# if I'm a replica in the target shard
@@ -412,59 +429,34 @@ class mainKeyVal:
 		# check causal context
 		req_data = request.get_json()
 		causalContext = dict(req_data["causal-context"])
+		print("BEGINNING PUT", file=sys.stderr)
 
 		# if I have a vector clock that is out of date in comparison to the message
-		if self.vcLessThan(self.vectorClock, causalContext):
+		if self.outOfDateWRT(causalContext):
 			# gossip to make sure this read is causaly consistant
 			self.gossip()
+
+		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+		if self.outOfDateWRT(causalContext):
+			return self.produceAvailabilityError("PUT")
 		
 		if len(key_name) > 50:
 			actual_dest = self.determineDestination(key_name[:50])
 			if os.environ['ADDRESS'] == actual_dest: 
-				return jsonify({"error:":"Key is too long", "message":"Error in PUT", "causal-context" : self.vectorClockMax(self.vectorClock, causalContext)}), 400
+				return jsonify({"error":"Key is too long", "message":"Error in PUT", "causal-context" : self.vectorClockMax(self.vectorClock, causalContext)}), 400
 			else: 
-				return jsonify({"error:":"Key is too long", "message":"Error in PUT", "causal-context" : self.vectorClockMax(self.vectorClock, causalContext), "address" : actual_dest}), 400
+				return jsonify({"error":"Key is too long", "message":"Error in PUT", "causal-context" : self.vectorClockMax(self.vectorClock, causalContext), "address" : actual_dest}), 400
 		shard_location = self.determineShardDestination(key_name)
 		shard = self.shards[shard_location]
 
 		if 'value' in req_data:
-			if len(self.view) != 0: # Make sure list is non empty
-				key_hash = self.determineDestination(key_name)
-				if os.environ['ADDRESS'] in shard:
-					data = req_data['value']
-					replaced = key_name in self.dictionary
-					self.dictionary[key_name] = data
-					if replaced:
-						message = "Updated successfully"
-						code = 200
-					else:
-						message = "Added successfully"
-						code = 201
-					self.vectorClock[os.environ['ADDRESS']] += 1
-					
-
-					print("event!", file= sys.stderr)
-					print(event, file= sys.stderr)
-
-
-					return jsonify({"message" : message, "replaced" : replaced, "causal-context" : self.vectorClockMax(self.vectorClock, causalContext)}), code
-				else:
-					try:
-						response = requests.put('http://'+ key_hash + '/kv-store/keys/' + key_name, data=json.dumps(req_data), headers=dict(request.headers), timeout=MAX_TIMEOUT)
-						print("garbage", file = sys.stderr)
-						json_response = response.json()
-						json_response.update({'address': key_hash})
-						return json_response, response.status_code
-					except requests.exceptions.Timeout:
-						response = self.produceAvailabilityError('PUT')
-						json_response = json.loads(response[0].response[0].decode('utf-8'))
-						json_response.update({'address': key_hash})
-						return json_response, 503
+			print("request had value", file=sys.stderr)
 			shard_location = self.determineShardDestination(key_name)
 			shard = self.shards[shard_location]
 			# I'm a replica in target shard, just put/update locally
 			if os.environ['ADDRESS'] in shard:
 				data = req_data['value']
+				print("saving value", file=sys.stderr)
 				replaced = key_name in self.dictionary
 				self.dictionary[key_name] = data
 				if replaced:
@@ -480,7 +472,14 @@ class mainKeyVal:
 				event["causal-context"] = self.vectorClock
 				event["key"] = key_name
 				event["value"] = data
+
+				print("Event:", file=sys.stderr)
+				print(event, file=sys.stderr)
+
 				self.eventHistory.append(event)
+				print("History:", file=sys.stderr)
+				print(self.eventHistory, file=sys.stderr)
+
 				return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": {}}), 200
 			else:
 				# Iterate over every node in the shard
@@ -503,7 +502,8 @@ class mainKeyVal:
 			# return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 200
 		# Forward request to nodes in target shard
 		else:
-			responseData = {"error:":"Value is missing", "message":"Error in PUT", "causal-context" : causalContext}
+			print("request had no value", file=sys.stderr)
+			responseData = {"error":"Value is missing", "message":"Error in PUT", "causal-context" : causalContext}
 			
 			key_hash = self.determineDestination(key_name)
 			if key_hash != os.environ['ADDRESS']:
@@ -551,9 +551,13 @@ class mainKeyVal:
 		causalContext = dict(req_data["causal-context"])
 
 		# if I have a vector clock that is out of date in comparison to the message
-		if self.vcLessThan(self.vectorClock, causalContext):
+		if self.outOfDateWRT(causalContext):
 			# gossip to make sure this read is causaly consistant
 			self.gossip()
+
+		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+		if self.outOfDateWRT(causalContext):
+			return self.produceAvailabilityError("DELETE")
 		
 		if key_name in self.dictionary:
 			del self.dictionary[key_name]
@@ -569,7 +573,7 @@ class mainKeyVal:
 			if len(self.view) != 0: # Make sure list is non empty
 				key_hash = self.determineDestination(key_name)
 				if os.environ['ADDRESS'] == key_hash:
-					return jsonify({"doesExist":False, "error:":"Key does not exist", "message":"Error in DELETE"}), 404    
+					return jsonify({"doesExist":False, "error":"Key does not exist", "message":"Error in DELETE"}), 404    
 				else:
 					try:
 						if req_data is not None:
