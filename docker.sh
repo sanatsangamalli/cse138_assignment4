@@ -153,7 +153,7 @@ docker run --name="node4" --net=kv_subnet                          \
 
 echo "ran node4"
 echo "creating terminal for node4..."
-mintty -h always -D ./attach.sh node4
+mintty -D ./attach.sh node4
 #osascript -e 'tell app "Terminal" to do script "cd '/Users/edgarh/Code/CSE138/cse138_assignment4' && ./attach.sh node4" '
 
 echo "done"
@@ -208,6 +208,6 @@ curl --request PUT                                                 \
 #docker exec node1 ./Tests/test_all.sh $addr1 $addr2 $addr3 $addr4
 #./Tests/test_all.sh $externalAddr1 $externalAddr2 $externalAddr3 $externalAddr4
 #./Tests/test_shard_endpoint.sh $externalAddr1 $externalAddr2 $externalAddr3 $externalAddr4
-#./Tests/test_write_read_replica.sh $externalAddr1 $externalAddr2
-./Tests/test_partition_recovery.sh $externalAddr1 $externalAddr2
+./Tests/test_write_read_replica.sh $externalAddr1 $externalAddr2
+#./Tests/test_partition_recovery.sh $externalAddr1 $externalAddr2
 #docker exec dummyNode ./Tests/test_write_read.sh $addr4

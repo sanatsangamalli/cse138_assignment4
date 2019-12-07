@@ -47,7 +47,7 @@ class mainKeyVal:
 		self.expectedReceiveCount = 0 # Number of keys this node is expected to have after a new view change
 		self.receiveFinalMessageEvent = threading.Event() # Threading event to determine when node needs to wait before finalizing a view change
 		
-		self.gossipWait = random.randrange(1, len(self.view))
+		self.gossipWait = random.randrange(1, max(len(self.view), 1))
 		self.gossipThread = threading.Thread(target = self.runScheduledPoll)
 		self.pollThread = threading.Thread(target = self.runScheduledGossip)
 
@@ -432,14 +432,13 @@ class mainKeyVal:
 				except Exception as e:
 					print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 			# NACK: All nodes timed out ...
-			return jsonify({"get": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
+			return self.produceAvailabilityError("GET", causalContext)#jsonify({"get": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
 			
 	# Fulfills client PUT requests
 	def put(self, request, key_name):
 		# check causal context
 		req_data = request.get_json()
 		causalContext = dict(req_data["causal-context"])
-		print("BEGINNING PUT", file=sys.stderr)
 
 		# if I have a vector clock that is out of date in comparison to the message
 		if self.outOfDateWRT(causalContext):
@@ -490,7 +489,7 @@ class mainKeyVal:
 				print("History:", file=sys.stderr)
 				print(self.eventHistory, file=sys.stderr)
 
-				return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": {}}), 200
+				return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), code
 			else:
 				# Iterate over every node in the shard
 				# TODO: Update vector clock everytime a message is sent???
@@ -508,7 +507,7 @@ class mainKeyVal:
 						print(e)
 						print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 				# NACK: All nodes timed out ...
-				return jsonify({"put": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
+				return self.produceAvailabilityError("PUT", causalContext)#jsonify({"put": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
 			# return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 200
 		# Forward request to nodes in target shard
 		else:
@@ -593,11 +592,12 @@ class mainKeyVal:
 					except requests.exceptions.Timeout:
 						return self.produceAvailabilityError('DELETE', causalContext)
 					except:
-						return jsonify({'error': 'Node in view (' + key_hash + ') does not exist', 'message': 'Error in DELETE'}), 503
+						return jsonify({'error': 'Node in view (' + key_hash + ') does not exist', 'message': 'Error in DELETE', 'causal-context': causalContext}), 503
 					json_response = response.json()
 					json_response.update({'address': key_hash})
 					return json_response, response.status_code
-			return jsonify({'error': 'Missing VIEW environmental variable', 'message': 'Error in GET'}), 503
+			else:
+				return jsonify({'error': 'Missing VIEW environmental variable', 'message': 'Error in GET', 'causal-context': causalContext}), 503
 
 	# Initiate a view change
 	# Function is called by the node that received the view change request 
@@ -669,7 +669,7 @@ class mainKeyVal:
 		self.changingView = False
 		self.leadingViewChange = False
 
-		return jsonify({"message": "View change successful", "shards": shards}), 200 
+		return jsonify({"message": "View change successful", "shards": shards, "causal-context": self.vectorClock}), 200 
 
 	# Leading node send prime message to all nodes in view
 	def sendPrimeMessage(self, address, newView, repl_factor):
@@ -761,8 +761,22 @@ class mainKeyVal:
 		return requests.put('http://'+ self.stagedMessages[key] + '/kv-store/view-change/receive?key=' + key + '&value=' + self.dictionary[key],timeout=20)
 
 	# return jsonify of dict size 
-	def getKeyCount(self):
-		return jsonify({"message": "Key count retrieved successfully", "key-count": len(self.dictionary)}), 200 
+	def getKeyCount(self, request):
+		data = request.get_json()
+		causalContext = data['causal-context']
+
+		# if I have a vector clock that is out of date in comparison to the message
+		if self.outOfDateWRT(causalContext):
+			# gossip to make sure this read is causaly consistant
+			self.gossip()
+
+		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+		if self.outOfDateWRT(causalContext):
+			return self.produceAvailabilityError("DELETE", causalContext)
+
+		self.vectorClock[os.environ['ADDRESS']] += 1
+
+		return jsonify({"message": "Key count retrieved successfully", "key-count": len(self.dictionary)}, "causal-context": self.vectorClockMax(causalContext, self.vectorClock)), 200 
 
 	def produceAvailabilityError(self, httpMethod, clientCausalContext):
 		return jsonify({'error': 'Unable to satisfy request', 'message': 'Error in ' + httpMethod, 'causal-context' : clientCausalContext}), 503
