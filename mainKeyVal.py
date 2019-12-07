@@ -13,7 +13,7 @@ import random
 import time
 from http import HTTPStatus
 # "Any node that does not respond within 5 seconds can broadly or generally be treated as 'failed'"
-MAX_TIMEOUT=5
+MAX_TIMEOUT=2
 
 # update remaining requests (GET, PUT, DELETE) to use and update causal context and to gossip
 # gossip implentation: on demand and periodically
@@ -201,6 +201,8 @@ class mainKeyVal:
 					except TimeoutError:
 						# handle timeout case
 						self.markUnavailable(address)
+					except:
+						self.markUnavailable(address)
 					else:
 						# print("gossiped successfully:", file = sys.stderr)
 						# print(response, file = sys.stderr)
@@ -287,7 +289,12 @@ class mainKeyVal:
 		#schedule polling
 
 	def sendGossipMessage(self, address, history):
-		return requests.get('http://'+ address + '/kv-store/gossip', json={"events" : history, "causal-context" : self.vectorClock}, timeout=MAX_TIMEOUT)
+		try:
+			response = requests.get('http://'+ address + '/kv-store/gossip', json={"events" : history, "causal-context" : self.vectorClock}, timeout=MAX_TIMEOUT)
+		except TimeoutError:
+			raise TimeoutError
+		else:
+			return response
 
 	def respondToGossip(self, request):
 		print("Servicing gossip request:", file = sys.stderr)
@@ -387,7 +394,7 @@ class mainKeyVal:
 
 		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
 		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("GET")
+			return self.produceAvailabilityError("GET", causalContext)
 
 		shard_location = self.determineShardDestination(key_name)
 		shard = self.shards[shard_location]
@@ -441,7 +448,7 @@ class mainKeyVal:
 
 		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
 		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("PUT")
+			return self.produceAvailabilityError("PUT", causalContext)
 		
 		if len(key_name) > 50:
 			actual_dest = self.determineDestination(key_name[:50])
@@ -560,7 +567,7 @@ class mainKeyVal:
 
 		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
 		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("DELETE")
+			return self.produceAvailabilityError("DELETE", causalContext)
 		
 		if key_name in self.dictionary:
 			del self.dictionary[key_name]
@@ -584,7 +591,7 @@ class mainKeyVal:
 						else:
 							response = requests.delete('http://'+ key_hash + '/kv-store/keys/' + key_name, headers=dict(request.headers), timeout=MAX_TIMEOUT)
 					except requests.exceptions.Timeout:
-						return self.produceAvailabilityError('DELETE')
+						return self.produceAvailabilityError('DELETE', causalContext)
 					except:
 						return jsonify({'error': 'Node in view (' + key_hash + ') does not exist', 'message': 'Error in DELETE'}), 503
 					json_response = response.json()
@@ -757,5 +764,5 @@ class mainKeyVal:
 	def getKeyCount(self):
 		return jsonify({"message": "Key count retrieved successfully", "key-count": len(self.dictionary)}), 200 
 
-	def produceAvailabilityError(self, httpMethod):
-		return jsonify({'error': 'Unable to satisfy request', 'message': 'Error in ' + httpMethod}), 503
+	def produceAvailabilityError(self, httpMethod, clientCausalContext):
+		return jsonify({'error': 'Unable to satisfy request', 'message': 'Error in ' + httpMethod, 'causal-context' : clientCausalContext}), 503
