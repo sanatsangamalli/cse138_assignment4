@@ -102,6 +102,7 @@ class mainKeyVal:
 				# Entire shard is down or something else went wrong
 				if shardData[1] != HTTPStatus.OK:
 					#print("Shard ID = " + str(shardId) + " failed to get shard data" , file = sys.stderr)
+					None
 				else:
 					shardCount[shardId] = shardData[0].json["get-shard"]["key-count"]
 		return jsonify({"shard-membership": {"message": "Shard membership retrieved successfully", "causal-context" : {}, "shards" : shardCount}}), 200
@@ -141,16 +142,16 @@ class mainKeyVal:
 		self.numShards = len(newView)/int(repl_factor)
 
 		self.shards = {}
-		# print("self.numShards " + str(self.numShards), file = sys.stderr)
+		# #print("self.numShards " + str(self.numShards), file = sys.stderr)
 		for i in range(0, int(self.numShards)):
 			# empty list with repl_factor entries
 			shard = [""]*int(repl_factor)
-			# print("shard" + str(shard), file = sys.stderr)
+			# #print("shard" + str(shard), file = sys.stderr)
 			self.shards[i] = shard
 		# get my index in addresses, devide by repl_factor to select shard
 		self.myShard = int(min(math.floor(addresses.index(os.environ['ADDRESS']) / int(repl_factor)), self.numShards-1))
-		# print("self.shards " + str(self.shards), file = sys.stderr)
-		# print("self.myShard " + str(self.myShard), file = sys.stderr)
+		# #print("self.shards " + str(self.shards), file = sys.stderr)
+		# #print("self.myShard " + str(self.myShard), file = sys.stderr)
 		# populate shards the same way
 		k = 0
 		for address in newView:
@@ -207,10 +208,10 @@ class mainKeyVal:
 					except:
 						self.markUnavailable(address)
 					else:
-						# print("gossiped successfully:", file = sys.stderr)
-						# print(response, file = sys.stderr)
-						# print(response.json(), file = sys.stderr)
-						# print(type(response.text), file = sys.stderr)
+						# #print("gossiped successfully:", file = sys.stderr)
+						# #print(response, file = sys.stderr)
+						# #print(response.json(), file = sys.stderr)
+						# #print(type(response.text), file = sys.stderr)
 						# receive list of events
 						eventLists.append(response.json()["events"])
 						# strip this list of values before my causal context
@@ -633,8 +634,8 @@ class mainKeyVal:
 
 		# retrieve my own address
 		myAddress = os.environ['ADDRESS']
-		print("myAddress", file=sys.stderr)
-		print(myAddress, file=sys.stderr)
+		#print("myAddress", file=sys.stderr)
+		#print(myAddress, file=sys.stderr)
 
 		# create a list of everyone in the view except me
 		receivers = newView.copy()
@@ -666,8 +667,8 @@ class mainKeyVal:
 		# each element should be of format i.e. { "address": "10.10.0.2:13800", "key-count": 5 },
 
 		hostShard = self.startChange(self.totalMsgVector[myAddress]).get_json() # Leading node send out its keys first
-		print("hostShard", file=sys.stderr)
-		print(hostShard, file=sys.stderr)
+		#print("hostShard", file=sys.stderr)
+		#print(hostShard, file=sys.stderr)
 		hostShard["address"] = os.environ["ADDRESS"]
 		shardPool = ThreadPool(len(receivers))
 		shards = shardPool.map(self.sendStartMessage, receivers) # Signal other nodes to send keys
@@ -691,10 +692,10 @@ class mainKeyVal:
 
 	# Leading node send prime message to all nodes in view
 	def sendPrimeMessage(self, address, newView, repl_factor):
-		print("sent prime message to " + address, file=sys.stderr)
-		print(newView, file=sys.stderr)
+		#print("sent prime message to " + address, file=sys.stderr)
+		#print(newView, file=sys.stderr)
 		response = requests.get('http://'+ address + '/kv-store/view-change/receive?view='+ (",".join(newView) + "&repl-factor=" + str(repl_factor)),timeout=MAX_TIMEOUT)
-		print("received prime response from " + address, file=sys.stderr)
+		#print("received prime response from " + address, file=sys.stderr)
 		return response
 
 	# Leading node send start message to all nodes in view
@@ -710,7 +711,7 @@ class mainKeyVal:
 		self.changingView = True
 		self.stagedMessages = {}
 
-		print("NEW VIEW REPLFACTOR: " + str(repl_factor), file=sys.stderr)
+		#print("NEW VIEW REPLFACTOR: " + str(repl_factor), file=sys.stderr)
 
 		self.configureNewView(newView.split(','), repl_factor)
 		self.expectedReceiveCount = 0 # Number of keys a node is expected to receive
@@ -728,7 +729,7 @@ class mainKeyVal:
 				messageVector[self.shards[destinationShard][myIndexInShard]] += 1
 				self.stagedMessages[key] = self.shards[destinationShard][myIndexInShard]
 
-		print("priming", file = sys.stderr)
+		#print("priming", file = sys.stderr)
 
 		return jsonify(messageVector), 200
 
@@ -769,7 +770,7 @@ class mainKeyVal:
 		return jsonify({"message":"Success"}), 200
 
 	def clear(self):
-		print("WARNING: CLEARING ALL KEYS", file = sys.stderr)
+		#print("WARNING: CLEARING ALL KEYS", file = sys.stderr)
 		deletedElementCount = len(self.dictionary)
 		self.dictionary = {}
 		return jsonify({"message":"Success", "keys deleted" : deletedElementCount}), 200
