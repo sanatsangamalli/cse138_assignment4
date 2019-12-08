@@ -26,7 +26,7 @@ addr2="10.10.0.3:13800"
 addr3="10.10.0.4:13800"
 addr4="10.10.0.5:13800"
 
-host="192.168.99.100"
+host="localhost"
 externalAddr1="$host:13802"
 externalAddr2="$host:13803"
 externalAddr3="$host:13804"
@@ -55,7 +55,7 @@ echo "running first two nodes with initial full view: ${initial_full_view}"
 docker run --name="node1"        --net=kv_subnet     \
            --ip=10.10.0.2        -p 13802:13800      \
            -e ADDRESS="${addr1}"                     \
-           -e VIEW=${initial_full_view}              \
+           -e VIEW="${initial_full_view}"              \
            -e REPL_FACTOR=2                          \
            -d                                       \
            kv-store:4.0
@@ -72,7 +72,7 @@ echo "done"
 docker run --name="node2"        --net=kv_subnet     \
            --ip=10.10.0.3        -p 13803:13800      \
            -e ADDRESS="${addr2}"                     \
-           -e VIEW=${initial_full_view}              \
+           -e VIEW="${initial_full_view}"              \
            -e REPL_FACTOR=2                          \
             -d                                       \
            kv-store:4.0
@@ -165,13 +165,13 @@ echo "all 4 nodes running"
 #      -v -4\
 #      http://${externalAddr4}/kv-store/keys/sampleKey
 
-
+sleep 2
 echo "changing view to include node3 and node4"
 curl --request PUT                                                 \
      --header "Content-Type: application/json"                     \
      --data "$view_change_data"                                      \
      --write-out "%{http_code}\n"                                  \
-     http://${externalAddr2}/kv-store/view-change
+     http://${externalAddr4}/kv-store/view-change
 
 # echo "done"
 # curl --request GET                                                 \
@@ -208,6 +208,6 @@ curl --request PUT                                                 \
 #docker exec node1 ./Tests/test_all.sh $addr1 $addr2 $addr3 $addr4
 #./Tests/test_all.sh $externalAddr1 $externalAddr2 $externalAddr3 $externalAddr4
 #./Tests/test_shard_endpoint.sh $externalAddr1 $externalAddr2 $externalAddr3 $externalAddr4
-./Tests/test_write_read_replica.sh $externalAddr1 $externalAddr2
+#./Tests/test_write_read_replica.sh $externalAddr1 $externalAddr2
 #./Tests/test_partition_recovery.sh $externalAddr1 $externalAddr2
 #docker exec dummyNode ./Tests/test_write_read.sh $addr4

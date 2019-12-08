@@ -387,20 +387,20 @@ class mainKeyVal:
 
 		print("server: getting " + key_name, file = sys.stderr)
 
-		# if I have a vector clock that is out of date in comparison to the message
-		if self.outOfDateWRT(causalContext):
-			# gossip to make sure this read is causaly consistant
-			self.gossip()
-
-		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
-		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("GET", causalContext)
-
 		shard_location = self.determineShardDestination(key_name)
 		shard = self.shards[shard_location]
 		
 		# if I'm a replica in the target shard
 		if os.environ['ADDRESS'] in shard:
+			# if I have a vector clock that is out of date in comparison to the message
+			if self.outOfDateWRT(causalContext):
+				# gossip to make sure this read is causaly consistant
+				self.gossip()
+
+			# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+			if self.outOfDateWRT(causalContext):
+				return self.produceAvailabilityError("GET", causalContext)
+
 			# increment my vector clock and return the requested value
 			self.vectorClock[os.environ['ADDRESS']] += 1
 			print("getting " + key_name + " locally", file = sys.stderr)
@@ -439,15 +439,6 @@ class mainKeyVal:
 		# check causal context
 		req_data = request.get_json()
 		causalContext = dict(req_data["causal-context"])
-
-		# if I have a vector clock that is out of date in comparison to the message
-		if self.outOfDateWRT(causalContext):
-			# gossip to make sure this read is causaly consistant
-			self.gossip()
-
-		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
-		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("PUT", causalContext)
 		
 		if len(key_name) > 50:
 			actual_dest = self.determineDestination(key_name[:50])
@@ -464,6 +455,15 @@ class mainKeyVal:
 			shard = self.shards[shard_location]
 			# I'm a replica in target shard, just put/update locally
 			if os.environ['ADDRESS'] in shard:
+				# if I have a vector clock that is out of date in comparison to the message
+				if self.outOfDateWRT(causalContext):
+					# gossip to make sure this read is causaly consistant
+					self.gossip()
+
+				# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+				if self.outOfDateWRT(causalContext):
+					return self.produceAvailabilityError("PUT", causalContext)
+				
 				data = req_data['value']
 				print("saving value", file=sys.stderr)
 				replaced = key_name in self.dictionary
@@ -558,17 +558,16 @@ class mainKeyVal:
 		# check causal context
 		req_data = request.get_json()
 		causalContext = dict(req_data["causal-context"])
-
-		# if I have a vector clock that is out of date in comparison to the message
-		if self.outOfDateWRT(causalContext):
-			# gossip to make sure this read is causaly consistant
-			self.gossip()
-
-		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
-		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("DELETE", causalContext)
 		
 		if key_name in self.dictionary:
+			# if I have a vector clock that is out of date in comparison to the message
+			if self.outOfDateWRT(causalContext):
+				# gossip to make sure this read is causaly consistant
+				self.gossip()
+
+			# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+			if self.outOfDateWRT(causalContext):
+				return self.produceAvailabilityError("DELETE", causalContext)
 			del self.dictionary[key_name]
 			self.vectorClock[os.environ['ADDRESS']] += 1
 			event = {}
