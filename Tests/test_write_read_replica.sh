@@ -4,7 +4,7 @@
 set -x
 
 # write sampleKey1 = value1 to replica1
-./Tests/put.sh $1 "sampleKey1" "value1" "{}"
+./Tests/put.sh 127.0.0.1:13805 "sampleKey1" "value10" "{}"
 # read sampleKey1 from replica2 to make sure it's correct
-./Tests/get_expected.sh $2 "sampleKey1" "{\"10.10.0.2:13800\":1,\"10.10.0.3:13800\":0}" "value1"
+./Tests/get.sh 127.0.0.1:13803 "sampleKey1" "{\"10.10.0.2:13800\":5,\"10.10.0.3:13800\":0,\"10.10.0.4:13800\":0}"
 

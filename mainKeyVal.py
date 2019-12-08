@@ -75,9 +75,11 @@ class mainKeyVal:
 				try:
 					requests.post('http://'+ address + '/kv-store/poll', timeout = MAX_TIMEOUT)
 				except TimeoutError:
-					print("Failed to reach " + str(address))
+					None
+					#print("Failed to reach " + str(address))
 				except:
-					print("Failed to reach " + str(address))
+					None
+					#print("Failed to reach " + str(address))
 				else:
 					self.replicaStatus[address] = "available"
 				
@@ -99,7 +101,7 @@ class mainKeyVal:
 				shardData = self.getShardData(shardId)
 				# Entire shard is down or something else went wrong
 				if shardData[1] != HTTPStatus.OK:
-					print("Shard ID = " + str(shardId) + " failed to get shard data" , file = sys.stderr)
+					#print("Shard ID = " + str(shardId) + " failed to get shard data" , file = sys.stderr)
 				else:
 					shardCount[shardId] = shardData[0].json["get-shard"]["key-count"]
 		return jsonify({"shard-membership": {"message": "Shard membership retrieved successfully", "causal-context" : {}, "shards" : shardCount}}), 200
@@ -123,7 +125,8 @@ class mainKeyVal:
 				keyCount = jsonedResponse["key-count"]
 				return jsonify({"get-shard": { "message" : "Shard information retrieved successfully", "shard-id": str(shard_id), "key-count": keyCount, "causal-context": {}, "replicas": shard }}), 200
 			except:
-				print(str(node) + "timedout when asked for key-count by" + os.environ['ADDRESS'] , file = sys.stderr)
+				return self.produceAvailabilityError("GET", causalContext)
+				#print(str(node) + "timedout when asked for key-count by" + os.environ['ADDRESS'] , file = sys.stderr)
 		# NACK: All nodes timed out ...
 		return jsonify({"get-shard": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_id)}}), 503
 
@@ -145,18 +148,18 @@ class mainKeyVal:
 			# print("shard" + str(shard), file = sys.stderr)
 			self.shards[i] = shard
 		# get my index in addresses, devide by repl_factor to select shard
-		self.myShard = int(min(math.floor(addresses.index(os.environ['ADDRESS']) / self.numShards), self.numShards-1))
+		self.myShard = int(min(math.floor(addresses.index(os.environ['ADDRESS']) / int(repl_factor)), self.numShards-1))
 		# print("self.shards " + str(self.shards), file = sys.stderr)
 		# print("self.myShard " + str(self.myShard), file = sys.stderr)
 		# populate shards the same way
 		k = 0
 		for address in newView:
-			index = int(min(math.floor(addresses.index(address) / self.numShards), self.numShards-1))
+			index = int(min(math.floor(addresses.index(address) / int(repl_factor)), self.numShards-1))
 			self.shards[index][k%int(repl_factor)] = address
 			k += 1
 
-		print("shards", file=sys.stderr)
-		print(self.shards, file=sys.stderr)
+		#print("shards", file=sys.stderr)
+		#print(self.shards, file=sys.stderr)
 
 		self.replicaStatus = {} # values are "available" and "unavailable" 
 		for address in self.shards[self.myShard]:
@@ -225,7 +228,7 @@ class mainKeyVal:
 
 		# if all replicas were available, we can safely empty our event list, but should save it otherwise
 		if self.allReplicasAvailable():
-			print("gossiped successfully with all peers, clearing event history", file=sys.stderr)
+			#print("gossiped successfully with all peers, clearing event history", file=sys.stderr)
 			self.eventHistory = []
 
 
@@ -297,22 +300,27 @@ class mainKeyVal:
 			return response
 
 	def respondToGossip(self, request):
-		print("Servicing gossip request:", file = sys.stderr)
+		#print("Servicing gossip request:", file = sys.stderr)
 		data = request.get_json()
-		#print("Request data:", file = sys.stderr)
-		#print(data, file = sys.stderr)
-
-		# combine message histories and apply
-		eventLists = []
-		eventLists.append(self.eventHistory)
-		eventLists.append(data["events"])
-		self.applyEvents(self.mergeEventLists(eventLists))
-
 		# update vector clock, but JUST THE ENTRY FOR THE SENDER
 		address = request.remote_addr + ":13800"
-		self.vectorClock[address] = data["causal-context"][address]
+		
+		if address in self.shards[self.myShard]:
+			#print("Request data:", file = sys.stderr)
+			#print(data, file = sys.stderr)
 
-		return jsonify({"events" : self.eventHistory, "causal-context" : self.vectorClock}), 200
+			# combine message histories and apply
+			if data["causal-context"][address] > self.vectorClock[address]:
+				eventLists = []
+				eventLists.append(self.eventHistory)
+				eventLists.append(data["events"])
+				self.applyEvents(self.mergeEventLists(eventLists))
+
+				self.vectorClock[address] = data["causal-context"][address]
+
+			return jsonify({"events" : self.eventHistory, "causal-context" : self.vectorClock}), 200
+		else:
+			return jsonify({"events" : [], "causal-context" : data["causal-context"]}), 200
 
 
 	# Hash partitioning
@@ -369,12 +377,18 @@ class mainKeyVal:
 		if not bool(causalContext):
 			return False
 
-		print("comparing contexts, mine:", file=sys.stderr)
-		print(self.vectorClock, file=sys.stderr)
-		print("comparing contexts, thiers:", file=sys.stderr)
-		print(causalContext, file=sys.stderr)
-
-		if self.vectorClock == causalContext:
+		#print("comparing contexts, mine:", file=sys.stderr)
+		#print(self.vectorClock, file=sys.stderr)
+		#print("comparing contexts, thiers:", file=sys.stderr)
+		#print(causalContext, file=sys.stderr)
+		
+		isEqual = True
+		for node in self.shards[self.myShard]:
+			if node in causalContext and causalContext[node] != self.vectorClock[node]:
+				isEqual = False
+				break
+		
+		if isEqual:
 			return False
 
 		return not self.vcLessThan(causalContext, self.vectorClock)
@@ -385,25 +399,25 @@ class mainKeyVal:
 		req_data = request.get_json()
 		causalContext = dict(req_data["causal-context"])
 
-		print("server: getting " + key_name, file = sys.stderr)
-
-		# if I have a vector clock that is out of date in comparison to the message
-		if self.outOfDateWRT(causalContext):
-			# gossip to make sure this read is causaly consistant
-			self.gossip()
-
-		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
-		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("GET", causalContext)
+		#print("server: getting " + key_name, file = sys.stderr)
 
 		shard_location = self.determineShardDestination(key_name)
 		shard = self.shards[shard_location]
 		
 		# if I'm a replica in the target shard
 		if os.environ['ADDRESS'] in shard:
+			# if I have a vector clock that is out of date in comparison to the message
+			if self.outOfDateWRT(causalContext):
+				# gossip to make sure this read is causaly consistant
+				self.gossip()
+
+			# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+			if self.outOfDateWRT(causalContext):
+				return self.produceAvailabilityError("GET", causalContext)
+				
 			# increment my vector clock and return the requested value
 			self.vectorClock[os.environ['ADDRESS']] += 1
-			print("getting " + key_name + " locally", file = sys.stderr)
+			#print("getting " + key_name + " locally", file = sys.stderr)
 
 			if key_name in self.dictionary:
 				return jsonify({"doesExist":True, "message":"Retrieved successfully", "value":self.dictionary[key_name], "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 200
@@ -423,14 +437,16 @@ class mainKeyVal:
 						response = requests.get('http://'+ node + '/kv-store/keys/' + key_name, headers=dict(request.headers), timeout=MAX_TIMEOUT)
 					json_response = response.json()
 					json_response.update({'address': node})
-					print("forwarding " + key_name, file = sys.stderr)
+					#print("forwarding " + key_name, file = sys.stderr)
 
 					return json_response, response.status_code
 					# return jsonify({"get-shard": { "message" : "Shard information retrieved successfully", "shard-id": str(shard_id), "key-count": keyCount, "causal-context": {}, "replicas": shard }}), 200
 				except requests.exceptions.Timeout:
-					print(str(node) + "timedout when asked for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+					return self.produceAvailabilityError("GET", causalContext)
+					#print(str(node) + "timedout when asked for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 				except Exception as e:
-					print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+					return self.produceAvailabilityError("GET", causalContext)
+					#print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 			# NACK: All nodes timed out ...
 			return self.produceAvailabilityError("GET", causalContext)#jsonify({"get": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
 			
@@ -439,15 +455,6 @@ class mainKeyVal:
 		# check causal context
 		req_data = request.get_json()
 		causalContext = dict(req_data["causal-context"])
-
-		# if I have a vector clock that is out of date in comparison to the message
-		if self.outOfDateWRT(causalContext):
-			# gossip to make sure this read is causaly consistant
-			self.gossip()
-
-		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
-		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("PUT", causalContext)
 		
 		if len(key_name) > 50:
 			actual_dest = self.determineDestination(key_name[:50])
@@ -459,13 +466,22 @@ class mainKeyVal:
 		shard = self.shards[shard_location]
 
 		if 'value' in req_data:
-			print("request had value", file=sys.stderr)
+			#print("request had value", file=sys.stderr)
 			shard_location = self.determineShardDestination(key_name)
 			shard = self.shards[shard_location]
 			# I'm a replica in target shard, just put/update locally
 			if os.environ['ADDRESS'] in shard:
+				# if I have a vector clock that is out of date in comparison to the message
+				if self.outOfDateWRT(causalContext):
+					# gossip to make sure this read is causaly consistant
+					self.gossip()
+
+				# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+				if self.outOfDateWRT(causalContext):
+					return self.produceAvailabilityError("PUT", causalContext)
+					
 				data = req_data['value']
-				print("saving value", file=sys.stderr)
+				#print("saving value", file=sys.stderr)
 				replaced = key_name in self.dictionary
 				self.dictionary[key_name] = data
 				if replaced:
@@ -482,19 +498,19 @@ class mainKeyVal:
 				event["key"] = key_name
 				event["value"] = data
 
-				print("Event:", file=sys.stderr)
-				print(event, file=sys.stderr)
+				#print("Event:", file=sys.stderr)
+				#print(event, file=sys.stderr)
 
 				self.eventHistory.append(event)
-				print("History:", file=sys.stderr)
-				print(self.eventHistory, file=sys.stderr)
+				#print("History:", file=sys.stderr)
+				#print(self.eventHistory, file=sys.stderr)
 
 				return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), code
 			else:
 				# Iterate over every node in the shard
 				# TODO: Update vector clock everytime a message is sent???
 				for node in shard:
-					print("trying node:" + str(node), file = sys.stderr)
+					#print("trying node:" + str(node), file = sys.stderr)
 					# Try nodes until 1 succeeds
 					try:
 						response = requests.put('http://'+ node + '/kv-store/keys/' + key_name, data=json.dumps(req_data), headers=dict(request.headers), timeout=MAX_TIMEOUT)
@@ -502,16 +518,18 @@ class mainKeyVal:
 						json_response.update({'address': node})
 						return json_response, response.status_code
 					except requests.exceptions.Timeout:
-						print(str(node) + "timedout when asked for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+						return self.produceAvailabilityError("PUT", causalContext)
+						#print(str(node) + "timedout when asked for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 					except Exception as e:
-						print(e)
-						print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+						return self.produceAvailabilityError("PUT", causalContext)
+						#print(e)
+						#print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 				# NACK: All nodes timed out ...
 				return self.produceAvailabilityError("PUT", causalContext)#jsonify({"put": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
 			# return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 200
 		# Forward request to nodes in target shard
 		else:
-			print("request had no value", file=sys.stderr)
+			#print("request had no value", file=sys.stderr)
 			responseData = {"error":"Value is missing", "message":"Error in PUT", "causal-context" : causalContext}
 			
 			key_hash = self.determineDestination(key_name)
@@ -558,17 +576,17 @@ class mainKeyVal:
 		# check causal context
 		req_data = request.get_json()
 		causalContext = dict(req_data["causal-context"])
-
-		# if I have a vector clock that is out of date in comparison to the message
-		if self.outOfDateWRT(causalContext):
-			# gossip to make sure this read is causaly consistant
-			self.gossip()
-
-		# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
-		if self.outOfDateWRT(causalContext):
-			return self.produceAvailabilityError("DELETE", causalContext)
 		
 		if key_name in self.dictionary:
+			# if I have a vector clock that is out of date in comparison to the message
+			if self.outOfDateWRT(causalContext):
+				# gossip to make sure this read is causaly consistant
+				self.gossip()
+
+			# if, after gossiping, we still don't have a vector clock that's up to date, return a nack
+			if self.outOfDateWRT(causalContext):
+				return self.produceAvailabilityError("DELETE", causalContext)
+				
 			del self.dictionary[key_name]
 			self.vectorClock[os.environ['ADDRESS']] += 1
 			event = {}
