@@ -18,11 +18,12 @@ def keyValStore(key_name):
 	if request.method == "PUT":
 		return server.put(request, key_name)
 	elif request.method == "GET":
-		print("getting " + key_name, file = sys.stderr)
+		#print("getting " + key_name, file = sys.stderr)
 		return server.get(request, key_name)
 	elif request.method == "DELETE":
 		return server.delete(request, key_name)
 	else:
+		#print("Method not supported", file = sys.stderr)
 		return jsonify({"message": "Method Not Supported"}), 404 
 
 # Function to return the key-count
@@ -47,9 +48,9 @@ def shards(shard_id): # shard_id optional
 
 
 # Function called when a view change is requested
-@app.route("/kv-store/view-change", methods = ["PUT", "prime",  "startChange", "receiveValue"])
+@app.route("/kv-store/view-change", methods = ["PUT", "prime",	"startChange", "receiveValue"])
 def view_change():
-	print("processing view change?", file=sys.stderr)
+	#print("processing view change?", file=sys.stderr)
 	if request.method == "PUT":
 		return server.viewChange(request)
 	else:
@@ -67,7 +68,7 @@ def receive():
 		return server.receiveValue(new_key, new_value, address) # Node receives a key from another node
 	elif request.method == "GET":
 		arguments = request.args.to_dict() # Return vector of message counts
-		print("receiving request to prime: factor = " + str(arguments["repl-factor"]), file=sys.stderr)
+		#print("receiving request to prime: factor = " + str(arguments["repl-factor"]), file=sys.stderr)
 		return server.prime(request.host, arguments["view"], arguments["repl-factor"])
 	elif request.method == "POST":
 		arguments = request.args.to_dict()
@@ -78,7 +79,7 @@ def receive():
 
 @app.route("/kv-store/gossip", methods = ["GET"])
 def gossip():
-	print(request, file = sys.stderr)
+	#print(request, file = sys.stderr)
 	return server.respondToGossip(request)
 
 @app.route("/kv-store/poll")
