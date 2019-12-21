@@ -169,8 +169,8 @@ class mainKeyVal:
 			self.shards[index][k%int(repl_factor)] = address
 			k += 1
 
-		print("shards", file=sys.stderr)
-		print(self.shards, file=sys.stderr)
+		#print("shards", file=sys.stderr)
+		#print(self.shards, file=sys.stderr)
 
 		self.replicaStatus = {} # values are "available" and "unavailable" 
 		for address in self.shards[self.myShard]:
@@ -198,7 +198,7 @@ class mainKeyVal:
 		return True
 
 	def gossip(self):
-		print("leading gossip", file=sys.stderr)
+		#print("leading gossip", file=sys.stderr)
 		eventLists = []
 		eventLists.append(self.eventHistory)
 		vectorClocks = {}
@@ -521,7 +521,7 @@ class mainKeyVal:
 				# Iterate over every node in the shard
 				# TODO: Update vector clock everytime a message is sent???
 				for node in shard:
-					print("trying node:" + str(node), file = sys.stderr)
+					#print("trying node:" + str(node), file = sys.stderr)
 					# Try nodes until 1 succeeds
 					try:
 						response = requests.put('http://'+ node + '/kv-store/keys/' + key_name, data=json.dumps(req_data), headers=dict(request.headers), timeout=MAX_TIMEOUT)
@@ -530,17 +530,17 @@ class mainKeyVal:
 						return json_response, response.status_code
 					except requests.exceptions.Timeout:
 						return self.produceAvailabilityError("PUT", causalContext)
-						print(str(node) + "timedout when asked for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+						#print(str(node) + "timedout when asked for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 					except Exception as e:
 						return self.produceAvailabilityError("PUT", causalContext)
-						print(e)
-						print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
+						#print(e)
+						#print(str(node) + "something else went wrong for key=" + key_name + " by" + os.environ['ADDRESS'] , file = sys.stderr)
 				# NACK: All nodes timed out ...
 				return self.produceAvailabilityError("PUT", causalContext)#jsonify({"put": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_location)}}), 503
 			# return jsonify({"doesExist":True, "message":message, "replaced":replaced, "causal-context": self.vectorClockMax(self.vectorClock, causalContext)}), 200
 		# Forward request to nodes in target shard
 		else:
-			print("request had no value", file=sys.stderr)
+			#print("request had no value", file=sys.stderr)
 			responseData = {"error":"Value is missing", "message":"Error in PUT", "causal-context" : causalContext}
 			
 			key_hash = self.determineDestination(key_name)
