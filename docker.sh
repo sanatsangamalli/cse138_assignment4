@@ -68,7 +68,6 @@ docker run --name="node1"        --net=kv_subnet     \
 
 echo "ran node1"
 echo "creating terminal for node1..."
-sleep 2
 #mintty -h always -D ./attach.sh node1
 mintty -h always -D ./attach.sh node1
 # OSX only: launch new terminal window, at that path, and run ./attach.sh 

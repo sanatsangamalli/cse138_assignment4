@@ -30,7 +30,7 @@ def keyValStore(key_name):
 @app.route("/kv-store/key-count", methods = ["GET"])
 def keyCount():
 	if request.method == "GET":
-		return server.getKeyCount()
+		return server.getKeyCount(request)
 	else:
 		return jsonify({"message": "Method Not Supported"}), 404 
 
@@ -41,10 +41,10 @@ def keyCount():
 def shards(shard_id): # shard_id optional
 	# All shards
 	if shard_id == None:
-		return server.getShardMembership()
+		return server.getShardMembership(request)
 		# return jsonify({"message": "/kv-store/shards endpoint not implemented yet"}), 501 
 	else:
-		return server.getShardData(shard_id)
+		return server.getShardData(request, shard_id)
 
 
 # Function called when a view change is requested

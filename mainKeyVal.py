@@ -91,45 +91,55 @@ class mainKeyVal:
 
 	# Returning key count has been removed from design doc
 	# TODO: return actual causal-context
-	def getShardMembership(self):
+	def getShardMembership(self, request):
+		# check causal context
+		req_data = request.get_json()
+		causalContext = dict(req_data["causal-context"])
 		shardCount = {}
 		for shardId in self.shards:
 			if shardId == self.myShard:
 				shardCount[shardId] = len(self.dictionary)
 			# "value from replica doesn't have to be most up to date
 			else:
-				shardData = self.getShardData(shardId)
+				shardData = self.getShardData(request, shardId)
 				# Entire shard is down or something else went wrong
 				if shardData[1] != HTTPStatus.OK:
 					#print("Shard ID = " + str(shardId) + " failed to get shard data" , file = sys.stderr)
+					shardCount[shardId] = 0
 					None
 				else:
 					shardCount[shardId] = shardData[0].json["get-shard"]["key-count"]
-		return jsonify({"shard-membership": {"message": "Shard membership retrieved successfully", "causal-context" : {}, "shards" : shardCount}}), 200
+		return jsonify({"shard-membership": {"message": "Shard membership retrieved successfully", "causal-context" : causalContext, "shards" : shardCount}}), 200
 
 	# TODO: return actual causal-context
 	# TODO: trigger gossip if inconsistency in key-counts/casual-contexts?
 	# "dont service a newer context if you dont know about it"
-	def getShardData(self, shard_id):
+	def getShardData(self, request, shard_id):
+		req_data = request.get_json()
+		causalContext = dict(req_data["causal-context"])
+
 		if shard_id not in self.shards:
-			return jsonify({"shard-membership": {"message": "Shard not found", "causal-context" : {}}}), 404
+			return jsonify({"shard-membership": {"message": "Shard not found", "causal-context" : causalContext}}), 404
 		shard = self.shards[shard_id]
 		# I'm a node in the shard
 		if os.environ['ADDRESS'] in shard:
-			return jsonify({"get-shard": { "message" : "Shard information retrieved successfully", "shard-id": str(shard_id), "key-count": len(self.dictionary), "causal-context": {}, "replicas": shard }}), 200
+			return jsonify({"get-shard": { "message" : "Shard information retrieved successfully", "shard-id": str(shard_id), "key-count": len(self.dictionary), "causal-context": causalContext, "replicas": shard }}), 200
 		# Iterate over every node in the shard
 		for node in shard:
 			# Try nodes until 1 succeeds
 			try:
-				response = requests.get('http://'+ node + '/kv-store/key-count', timeout=MAX_TIMEOUT)
+				response = requests.get('http://'+ node + '/kv-store/key-count', json={"causal-context" : causalContext}, timeout=MAX_TIMEOUT)
 				jsonedResponse = response.json()
 				keyCount = jsonedResponse["key-count"]
-				return jsonify({"get-shard": { "message" : "Shard information retrieved successfully", "shard-id": str(shard_id), "key-count": keyCount, "causal-context": {}, "replicas": shard }}), 200
+				return jsonify({"get-shard": { "message" : "Shard information retrieved successfully", "shard-id": str(shard_id), "key-count": keyCount, "causal-context": causalContext, "replicas": shard }}), 200
 			except:
-				return self.produceAvailabilityError("GET", causalContext)
-				print(str(node) + "timedout when asked for key-count by" + os.environ['ADDRESS'] , file = sys.stderr)
+				#return self.produceAvailabilityError("GET", causalContext)
+				#print(str(node) + "timedout when asked for key-count by" + os.environ['ADDRESS'] , file = sys.stderr)
+				None
+				
 		# NACK: All nodes timed out ...
-		return jsonify({"get-shard": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_id)}}), 503
+		return self.produceAvailabilityError("GET", causalContext)
+		#return jsonify({"get-shard": { "message" : "Shard down. All replicas timedout", "shard-id": str(shard_id)}}), 503
 
 	def configureNewView(self, newView, repl_factor):
 		self.view = newView
@@ -341,7 +351,7 @@ class mainKeyVal:
 		# return self.view[hashVal % len(self.view)]
 
 	def determineShardDestination(self, key_value):
-		return int(hashlib.sha1(key_value.encode('utf-8')).hexdigest(), 16) % self.numShards
+		return int(hashlib.sha1(key_value.encode('utf-8')).hexdigest(), 16) % int(self.numShards)
 
 	# returns whether the vector clock A is less than the vector clock B
 	def vcLessThan(self, A, B):
